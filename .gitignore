@@ -6,6 +6,4 @@ __pycache__/
 *.pyc
 pip_install.log
 orchestration/runs/
-orchestration/prompts/
-rag_storage.failed-run/
 rag_storage.*/

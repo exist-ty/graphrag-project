@@ -8,14 +8,14 @@ Project-state facts live in `MEMORY.md`; this file holds delegation mechanics on
 ## Call template
 
 ```
-agy --print "Read <spec-file> — it is your task — and carry it out."   \
-    --model <model> --output-format json --disable-slash-commands       \
-    --add-dir "D:\Projects\graphrag-project" --print-timeout 15m        \
+agy --print "Read <spec-file> — it is your task — and carry it out." \
+    --model <model> --output-format json --disable-slash-commands \
+    --add-dir "D:\Projects\graphrag-project" --mode accept-edits \
+    --print-timeout 15m \
     > orchestration/runs/<tag>.json 2> orchestration/runs/<tag>.err
 ```
 
-Then `python orchestration/extract.py <tag>` — it gates the result before writing it into `scripts/`
-(see "Review order").
+Then gate what it wrote: `python orchestration/extract.py --gate <output-file>` (see "Review order").
 
 Write the full task spec to `orchestration/prompts/<tag>_<name>.md` and keep the argv prompt to one
 line. Two hard reasons:
@@ -103,9 +103,13 @@ Aggregate small asks into one prompt.
 - **Empty `response` with non-zero `output_tokens`** — the agent tried a tool needing the `command`
   permission, which headless mode auto-denies. The reason appears only on stderr. Fix: name exact
   file paths in the spec so plain reads suffice, instead of inviting directory exploration.
-- **Delegated runs modify the working tree**, including without `--dangerously-skip-permissions`,
-  and they exceed their stated scope — a translation run scoped to one file also rewrote `PLAN.md`.
-  Always `git diff` after a delegated run.
+- **Delegated runs modify the repository**, including without `--dangerously-skip-permissions`, and
+  they exceed their stated scope. A translation run scoped to one file also rewrote `PLAN.md`. Worse,
+  one run **made a git commit**: `da35f92` added `orchestration/prompts/` to `.gitignore` and deleted
+  all nine specs from tracking, 726 lines, authored under a name one letter off from the real one.
+  A commit leaves the working tree clean, so `git diff` reports nothing — which is exactly why it
+  went unnoticed. After every delegated run check **`git log`** and `git status`, and confirm `HEAD`
+  has not moved.
 - **`status: ERROR` with a non-empty `response`** — provider-side termination mid-stream. The
   partial output is often still usable; check whether the fenced block closed.
 

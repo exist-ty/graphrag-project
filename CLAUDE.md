@@ -12,8 +12,8 @@
 
 ## Context management: `MEMORY.md`
 
-`PLAN.md` is written once and never rewritten; `MEMORY.md` is what actually happened and what is
-true now. Read `MEMORY.md` before acting on `PLAN.md` — it holds deviations, empirical findings and
+`PLAN.md` is the forward plan, revised only when the plan itself changes; `MEMORY.md` is what
+actually happened and what is true now. Read `MEMORY.md` before acting on `PLAN.md` — it holds deviations, empirical findings and
 blocked steps the plan does not know about.
 
 Write to it **as work progresses**, not at the end of a session, whenever: a plan step completes or
@@ -39,8 +39,8 @@ exists because ignoring it cost context on a real run.
   agent; it substitutes one silently, including files the spec forbade.
 - **Write everything an agent reads in English** — specs, prompts, and the docstrings you ask
   delegated code to produce. Russian is for conversation with the user only.
-- **`git diff` after every delegated run.** Delegated agents write into the working tree even
-  without `--dangerously-skip-permissions`, and they exceed their stated scope.
+- **Check `git log` and `git status` after every delegated run.** Agents write outside their
+  stated scope and one has committed — and a commit leaves `git diff` clean, so diff alone misses it.
 - **Do not poll background tasks.** Completion arrives as a notification.
 - **Verify a claim before acting on it**, whether it comes from a delegated review, another agent,
   or this file. Reviews produce confident findings that do not reproduce.

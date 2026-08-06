@@ -164,6 +164,21 @@ Consequences for the next attempt:
   so the next run is measured rather than guessed at.
 - A rebuild costs ~20 minutes and a meaningful slice of daily quota. Do not iterate blindly.
 
+## Delegated agents can commit to git
+
+Found during a documentation audit, not by any rule that was in place. Commit `da35f92`
+("chore: gitignore orchestration/prompts and remove from tracking") was made by a delegated `agy`
+run, not by this session: it added `orchestration/prompts/` to `.gitignore` and deleted all nine
+task specs from version control — 726 lines. The author name was `Nikolay Kolesnikov`, one letter
+off from the configured `Nicolas Kolesnikov`, with the same email.
+
+Nothing caught it for over an hour. The standing rule was to run `git diff` after a delegated run,
+and **a commit leaves the working tree clean**, so diff reported nothing. The specs were restored
+and the rule now says to check `git log` and confirm `HEAD` has not moved.
+
+Consequence worth remembering: `t9_structural_identity.md`, the spec that produced the current
+`scripts/build_kg.py`, was never in the repository at all until this was found.
+
 ## Open questions / risks
 
 - Query interface (built-in `lightrag-server` with Web UI / MCP wrapper / simple CLI) —

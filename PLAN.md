@@ -32,13 +32,16 @@ The API key lives only in `.env`.
 ```
 graphrag-project/
   data/generated/            # synthetic .md corpus (24 documents)
-  data/ground_truth.json     # the generated source of truth
+  data/ground_truth.json     # the generated source of truth (evaluation reference)
+  data/entity_registry.json  # registry the pipeline may consume
+  data/eval_holdout.json     # withheld entities — evaluation only, never read by the pipeline
   rag_storage/               # LightRAG working dir (graph + vectors + kv)
   scripts/
     generate_synthetic_data.py   # two-pass corpus generation
     build_kg.py                  # ingestion; exports create_rag()
     query_example.py             # query CLI / REPL
     verify_graph.py              # scores the graph against ground truth; exits 1 on failure
+    split_ground_truth.py        # registry / holdout split, Phase 4 step 1
     disambiguate.py              # post-hoc homonym repair — superseded, see Phase 4
   orchestration/
     prompts/                 # task specs handed to delegated agents
@@ -56,10 +59,11 @@ All three original scripts are built and the corpus is ingested. Verification ag
 | Multi-hop reach | 100% (6/6) |
 | Timeline coverage | 100% (8/8) |
 | **Homonym groups separated** | **0 of 2** |
-| Alias splitting | 18 entities |
+| Alias splitting | 15 entities |
+| Ingestion | 24/24 documents, zero failures |
 
 The pipeline captures everything except the two cases the corpus exists to test. That is the work
-that remains.
+that remains, and Phase 4 below tracks it step by step.
 
 ## Phase 4 — entity resolution done properly
 
@@ -67,33 +71,58 @@ that remains.
 `operate.py:2078`). While identity is a name, homonyms are *required* to collide; no amount of
 downstream repair changes that.
 
-`scripts/disambiguate.py` was a first attempt and is kept only as a reference point. It is not the
-solution and **must not be run with `--in-place`**: it rewrites the GraphML alone and never touches
-`vdb_entities.json`, so afterwards the graph and the vector store disagree about which entities
-exist. `local` and `hybrid` retrieval consult the vector store first, so that desync breaks
-retrieval silently while the report improves.
+`scripts/disambiguate.py` was the first attempt and is superseded. It **must not be run with
+`--in-place`**: it rewrites the GraphML alone and never touches `vdb_entities.json`, so afterwards
+the graph and the vector store disagree about which entities exist, and `local`/`hybrid` retrieval —
+which consults the vector store first — breaks silently while the report improves.
 
-Four steps, in this order:
+### Step 1 — split the ground truth ✔ done
 
-1. **Split the ground truth.** `data/entity_registry.json` — canonical entity registry the pipeline
-   may consume, the analogue of production master data. `data/eval_holdout.json` — entities withheld
-   from the pipeline and used only for scoring. Fixing the graph with the same file it is then
-   scored against is circular; this split makes the supervision legitimate.
-2. **Resolve during ingestion.** Canonicalisation belongs in the ingestion path, so embeddings are
-   computed for the resolved entity and the two stores are consistent by construction rather than
-   reconciled afterwards.
-3. **Make identity structural.** Derive the node key from discriminating attributes — type and owner
-   beside the name — so two same-named entities cannot occupy one node *by construction*. The lever
-   is the extraction prompt via `addon_params` / `PROMPTS`.
-4. **Metrics that can fail.** Score entities absent from the registry, and report precision/recall of
-   resolution rather than a count of collapsed groups. A mechanism that only recognises names it was
-   given is a lookup, not entity resolution.
+`scripts/split_ground_truth.py` produces `data/entity_registry.json` (consumable by the pipeline,
+the analogue of production master data) and `data/eval_holdout.json` (withheld, evaluation only).
+One complete homonym group, the `Vanguard` pair, is withheld so it must be separated by the
+mechanism rather than looked up; the `Aurelia-Prime` pair stays in the registry and exercises the
+assisted path. Hierarchy links naming a withheld entity are dropped from the registry so its id and
+owner do not leak.
 
-Steps 2 and 3 are one change, not two.
+### Steps 2 and 3 — resolve during ingestion, with structural keys ◐ partially done
 
-**Done when**: `verify_graph.py` reports 2 of 2 homonym groups separated, alias splitting drops, no
-other coverage regresses, graph and `vdb_*.json` agree without a reconciliation pass, and the result
-holds for entities missing from the registry.
+`scripts/build_kg.py` now canonicalises names inside the ingestion path: a disambiguation rule in
+the extraction prompt, plus rewriting of entity and relation tuples in `llm_model_func` before
+LightRAG stores them. GraphML and `vdb_*.json` therefore receive the same ids by construction — the
+thing post-processing could not achieve.
+
+Result of the first clean rebuild (24/24 documents, zero failures, 208 nodes): coverage metrics all
+hold at 100%, alias splitting improves 18 → 15, and homonyms still read **0 of 2**.
+
+Not because nothing happened. The graph now contains qualified nodes — `VD-Vanguard-Alpha (Heavy
+Strike Cruiser)`, `Valerius Vanguard (Landing Transport)`, `Aurelia-Prime Space Station`, `Aurelia
+Prime Flagship` — but the bare forms survive alongside them (`Vanguard`, `Vanguard-2`, `Aurelia
+Prime`, `Aurilia-Prime`) and fuzzy-match both members of a pair, which is what the check reports.
+This is Risk 1 from the design's own list: the extractor still emits a short name on noisy chunks
+and the resolver passes it through when it finds nothing to qualify it with.
+
+### Step 4 — metrics that can fail ▶ next
+
+Do this **before** touching the resolver again. The binary separated/collapsed count hid real
+progress — it read 0 of 2 both when nothing worked and when half the mentions were already resolved
+— so it would hide a regression just as well, and the next rebuild would be guesswork.
+
+Replace it with precision/recall over resolved mentions, scored separately for entities in the
+registry and entities withheld from it. A mechanism that only handles registry entries is a lookup,
+and the split exists precisely to show that.
+
+### Step 5 — close the resolver's fallback ▶ after step 4
+
+The resolver must never emit an unqualified name for an entity type known to be ambiguous. With no
+evidence in the chunk it should fall back to a deterministic qualifier — the chunk's dominant owner
+or the entity type — rather than leaving the bare form to collide.
+
+**Phase 4 is done when**: 2 of 2 homonym groups separated, holdout scored no worse than registry
+entries, no coverage regression, and graph and `vdb_*.json` agreeing without a reconciliation pass.
+
+Each rebuild costs ~20 minutes and a meaningful slice of the daily quota. Measure first, then change
+one thing.
 
 ## Constraints that shape everything
 

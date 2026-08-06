@@ -32,6 +32,7 @@ TARGETS = {
     "t2": "build_kg.py",
     "t3": "query_example.py",
     "t4": "verify_graph.py",
+    "t5": "disambiguate.py",
 }
 
 FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.S)
