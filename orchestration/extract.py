@@ -24,6 +24,7 @@ TARGETS = {
     "t1": "generate_synthetic_data.py",
     "t2": "build_kg.py",
     "t3": "query_example.py",
+    "t4": "verify_graph.py",
 }
 
 FENCE = re.compile(r"```(?:python|py)?\s*\n(.*?)```", re.S)

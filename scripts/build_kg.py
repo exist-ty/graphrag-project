@@ -14,13 +14,16 @@ import hashlib
 import json
 import logging
 import os
+import re
 import sys
 import time
+from collections import deque
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 from dotenv import load_dotenv
+from google.genai import errors as genai_errors
 from lightrag import LightRAG
 from lightrag.kg.shared_storage import initialize_pipeline_status
 from lightrag.llm.gemini import gemini_complete_if_cache, gemini_embed
@@ -91,12 +94,16 @@ async def llm_model_func(
         for key, value in kwargs.items()
         if key in _GEMINI_PASSTHROUGH_KEYS
     }
-    return await gemini_complete_if_cache(
-        LLM_MODEL,
-        prompt,
-        system_prompt=system_prompt,
-        history_messages=history_messages or [],
-        **safe_kwargs,
+    return await _call_with_429_retry(
+        "llm",
+        _LLM_LIMITER,
+        lambda: gemini_complete_if_cache(
+            LLM_MODEL,
+            prompt,
+            system_prompt=system_prompt,
+            history_messages=history_messages or [],
+            **safe_kwargs,
+        ),
     )
 
 
@@ -104,9 +111,84 @@ async def llm_model_func(
 # Фабрика RAG
 # ---------------------------------------------------------------------------
 
-# Ограничивает число одновременных запросов к embedding-API: обёртка ниже разворачивает
-# каждый батч в отдельные вызовы, и без этого их число множилось бы на embedding_func_max_async.
-_EMBED_SEMAPHORE = asyncio.Semaphore(4)
+# ---------------------------------------------------------------------------
+# Ограничение частоты запросов
+# ---------------------------------------------------------------------------
+# ОБА лимита free tier — ПОМИНУТНЫЕ (метрики вычитаны из тел реальных 429-ошибок):
+#   LLM:       GenerateRequestsPerMinutePerProjectPerModel-FreeTier
+#   Embedding: EmbedContentRequestsPerMinutePerUserPerProjectPerModel-FreeTier, 100/мин
+# Поминутный лимит, в отличие от суточного, лечится ожиданием — поэтому ждать здесь дешевле,
+# чем ловить 429: одна такая ошибка роняет ВЕСЬ документ в статус failed.
+
+
+class RateLimiter:
+    """Скользящее окно на 60 секунд: не выпускает больше `limit` запросов в минуту.
+
+    Семафор ограничивает лишь ОДНОВРЕМЕННОСТЬ, а не частоту: несколько быстрых параллельных
+    запросов легко дают сотни вызовов в минуту и выбирают поминутную квоту.
+    """
+
+    def __init__(self, limit: int, name: str) -> None:
+        self.limit = limit
+        self.name = name
+        self._lock = asyncio.Lock()
+        self._calls: deque[float] = deque()
+
+    async def acquire(self) -> None:
+        while True:
+            async with self._lock:
+                now = time.monotonic()
+                while self._calls and now - self._calls[0] >= 60.0:
+                    self._calls.popleft()
+                if len(self._calls) < self.limit:
+                    self._calls.append(now)
+                    return
+                sleep_for = 60.0 - (now - self._calls[0]) + 0.05
+            logger.debug("%s: лимит %d/мин достигнут, ждём %.1f с", self.name, self.limit, sleep_for)
+            await asyncio.sleep(max(sleep_for, 0.05))
+
+
+# Пороги взяты заметно ниже фактических лимитов: наблюдаемые 429 приходили и при 80/мин,
+# поэтому запас должен быть большим, а не символическим.
+_EMBED_LIMITER = RateLimiter(limit=45, name="embedding")
+_LLM_LIMITER = RateLimiter(limit=12, name="llm")
+_EMBED_SEMAPHORE = asyncio.Semaphore(2)
+
+
+def _retry_delay_from_error(exc: Exception, attempt: int) -> float:
+    """Достаёт `retryDelay` из тела 429-ошибки Gemini; иначе — экспоненциальный откат."""
+    match = re.search(r"'retryDelay':\s*'(\d+(?:\.\d+)?)s'", str(exc))
+    if match:
+        return float(match.group(1)) + 1.0
+    return min(2.0 * (2 ** attempt), 60.0)
+
+
+async def _call_with_429_retry(
+    what: str,
+    limiter: "RateLimiter",
+    call: "Any",
+    attempts: int = 6,
+) -> Any:
+    """
+    Выполняет вызов под ограничителем частоты, переживая 429.
+
+    Свой ретрай нужен потому, что штатный `@retry` в биндингах LightRAG ловит
+    `google.api_core.exceptions.ResourceExhausted`, а новый SDK бросает
+    `google.genai.errors.ClientError` — декоратор проходит мимо неё.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        await limiter.acquire()
+        try:
+            return await call()
+        except genai_errors.ClientError as exc:
+            if getattr(exc, "code", None) != 429:
+                raise
+            last_exc = exc
+            delay = _retry_delay_from_error(exc, attempt)
+        logger.warning("%s: 429, попытка %d/%d, ждём %.1f с", what, attempt + 1, attempts, delay)
+        await asyncio.sleep(delay)
+    raise RuntimeError(f"{what}: не удалось после {attempts} попыток: {last_exc}")
 
 
 async def embed_texts_one_by_one(
@@ -129,13 +211,17 @@ async def embed_texts_one_by_one(
     """
     async def one(text: str) -> "np.ndarray":
         async with _EMBED_SEMAPHORE:
-            return await gemini_embed.func(  # type: ignore[attr-defined]
-                [text],
-                model=EMBED_MODEL,
-                api_key=os.environ["GEMINI_API_KEY"],
-                max_token_size=max_token_size,
-                context=context,
-                **kwargs,
+            return await _call_with_429_retry(
+                "embedding",
+                _EMBED_LIMITER,
+                lambda: gemini_embed.func(  # type: ignore[attr-defined]
+                    [text],
+                    model=EMBED_MODEL,
+                    api_key=os.environ["GEMINI_API_KEY"],
+                    max_token_size=max_token_size,
+                    context=context,
+                    **kwargs,
+                ),
             )
 
     parts = await asyncio.gather(*(one(text) for text in texts))
