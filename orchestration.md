@@ -133,6 +133,37 @@ Practical scenarios for this project (see `PLAN.md`):
 Autonomous (`--dangerously-skip-permissions`) runs — only by separate consent for each
 specific batch run, not as a default mode.
 
+## Review order: cheapest check first
+
+Measured on this project's runs, reviewing delegated code by reading it in full is both the most
+expensive step for the orchestrator and the least productive one. Roughly 1900 lines were read into
+the orchestrator's context; that yielded one bug (`*.txt` instead of `*.md`). The expensive defects
+came from elsewhere: `Vector count mismatch` and both quota walls surfaced by **running** the code,
+and the inverted hierarchy metric was found by a **delegated** review whose output cost 8 KB to read
+instead of 957 lines.
+
+So run the checks in ascending order of cost, and stop as soon as one rejects:
+
+1. **Mechanical gate** — `orchestration/extract.py` runs it automatically before writing a delegated
+   file into `scripts/`: syntax, resolvability of every top-level import, forbidden constructs
+   (old `google.generativeai` SDK, `genai.AsyncClient`, `generation_config=`), and the contract the
+   orchestrator specified in the prompt (`create_rag` exported, `*.md` glob, `gemini_embed.func`,
+   `initialize_pipeline_status`). Rejected output goes to `orchestration/runs/<tag>.rejected.py`
+   and is never read in full. This gate alone rejects the `gpt-oss-120b-medium` failure with four
+   lines of output.
+2. **Run it** — a smoke run with a small `--limit` answers "does it work" with an exit code. Silent
+   data corruption (wrong vector counts, swallowed batches) shows up here and nowhere else.
+3. **Delegated review** — `gemini-3.1-pro-high` against the installed library sources; the
+   orchestrator reads only the findings.
+4. **Own reading** — last, and only at the lines the previous steps pointed to.
+
+Also: do not poll background tasks. Completion arrives as a notification; repeated `ls | wc -l`
+style checks buy nothing and cost context on every turn.
+
+**Delegated agents exceed their stated scope.** A translation run told to touch exactly one file
+also rewrote `PLAN.md`, which was not in its instructions. Always diff the working tree after a
+delegated run rather than trusting the instruction to have been followed.
+
 ## The golden rule of code delegation (verified on a run on 2026-08-06)
 
 **The quality of the delegated code is determined not by the model choice, but by whether the verified API
