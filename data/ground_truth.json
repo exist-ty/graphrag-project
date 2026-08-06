@@ -1,0 +1,419 @@
+{
+  "sector_name": "Aurelia Sector",
+  "houses": [
+    {
+      "id": "house_aurelius",
+      "name": "House Aurelius",
+      "aliases": [
+        "Imperial Crown",
+        "Aurelian Dynasty"
+      ],
+      "description": "Ruling feudal house of Aurelia Sector, holding supreme authority over the High Imperial Council.",
+      "motto": "Light Eternal, Order Unbroken"
+    },
+    {
+      "id": "house_valerius",
+      "name": "House Valerius",
+      "aliases": [
+        "The Iron Sun",
+        "Valerius Dynasty"
+      ],
+      "description": "Militaristic noble house controlling heavy industrial forge worlds, shipyards, and frontline fleets.",
+      "motto": "Through Iron to the Stars"
+    },
+    {
+      "id": "house_vance",
+      "name": "House Vance",
+      "aliases": [
+        "Shadow Weavers",
+        "Vance Syndicate"
+      ],
+      "description": "Secretive noble house specializing in espionage, neural communications, and covert intelligence networks.",
+      "motto": "Silence Rules the Void"
+    }
+  ],
+  "megacorporations": [
+    {
+      "id": "corp_aetheric",
+      "name": "Aetheric BioTech",
+      "aliases": [
+        "Aetheric",
+        "ABT"
+      ],
+      "description": "Primary developer of gene-therapies, organ cloning, and planetary terraforming bio-agents.",
+      "specialization": "Biotechnology & Gene-Engineering"
+    },
+    {
+      "id": "corp_vanguard_dyn",
+      "name": "Vanguard Dynamics",
+      "aliases": [
+        "Vanguard Corp",
+        "VDyn"
+      ],
+      "description": "Interstellar military defense contractor and private security logistics provider.",
+      "specialization": "Defense Contracting & Strategic Fleet Logistics"
+    },
+    {
+      "id": "corp_cygnus",
+      "name": "Cygnus Neural Systems",
+      "aliases": [
+        "Cygnus-AI",
+        "CNS"
+      ],
+      "description": "Pioneer in quantum computing, cybernetic neural links, and autonomous starship AI command nodes.",
+      "specialization": "Cybernetics & Quantum AI"
+    }
+  ],
+  "persons": [
+    {
+      "id": "person_aurelius_1",
+      "name": "Empress Cassandria Aurelius",
+      "aliases": [
+        "Star Empress",
+        "Cassandria I"
+      ],
+      "titles": [
+        "Sovereign of Aurelia Sector",
+        "Lady of the Crown Citadel"
+      ],
+      "callsigns": [
+        "Crown Prime"
+      ],
+      "affiliation_id": "house_aurelius",
+      "role": "High Empress and Ruler of Aurelia Hegemony"
+    },
+    {
+      "id": "person_valerius_1",
+      "name": "Grand Duke Marcus Valerius",
+      "aliases": [
+        "Iron Duke"
+      ],
+      "titles": [
+        "Lord Marshal of the Imperial Fleet",
+        "Duke of Forge Prime"
+      ],
+      "callsigns": [
+        "Ironclad-1"
+      ],
+      "affiliation_id": "house_valerius",
+      "role": "Supreme Commander of Valerius Armed Forces"
+    },
+    {
+      "id": "person_vance_1",
+      "name": "High Master Thorne Vance",
+      "aliases": [
+        "The Mastermind"
+      ],
+      "titles": [
+        "Grand Inquisitor of Signals"
+      ],
+      "callsigns": [
+        "Ghost Node"
+      ],
+      "affiliation_id": "house_vance",
+      "role": "Director of Imperial Intelligence"
+    },
+    {
+      "id": "person_ceo_aetheric",
+      "name": "Dr. Valeria Thorne",
+      "aliases": [
+        "Gene Mother"
+      ],
+      "titles": [
+        "Chief Executive Officer of Aetheric BioTech"
+      ],
+      "callsigns": [
+        "Helix"
+      ],
+      "affiliation_id": "corp_aetheric",
+      "role": "Chief Executive Officer"
+    },
+    {
+      "id": "person_vanguard_adm",
+      "name": "Admiral Alexander Vance-Cross",
+      "aliases": [
+        "Void Bearer"
+      ],
+      "titles": [
+        "Supreme Fleet Commander of Vanguard Dynamics"
+      ],
+      "callsigns": [
+        "Vanguard Prime"
+      ],
+      "affiliation_id": "corp_vanguard_dyn",
+      "role": "Fleet Commander"
+    },
+    {
+      "id": "person_cygnus_lead",
+      "name": "Chief Architect Archon Kaelen",
+      "aliases": [
+        "Mindsmith"
+      ],
+      "titles": [
+        "Director of Cygnus Neural Engineering"
+      ],
+      "callsigns": [
+        "Zero Core"
+      ],
+      "affiliation_id": "corp_cygnus",
+      "role": "Lead Systems Architect"
+    },
+    {
+      "id": "person_captain_elena",
+      "name": "Captain Elena Rostov",
+      "aliases": [
+        "Iron Sparrow"
+      ],
+      "titles": [
+        "Senior Commander of Dreadnought Aurelia-Prime"
+      ],
+      "callsigns": [
+        "Sparrow Lead"
+      ],
+      "affiliation_id": "house_valerius",
+      "role": "Flagship Naval Captain"
+    },
+    {
+      "id": "person_agent_nyx",
+      "name": "Agent Nyx",
+      "aliases": [
+        "Shadow-7"
+      ],
+      "titles": [
+        "Senior Field Operative"
+      ],
+      "callsigns": [
+        "Cipher"
+      ],
+      "affiliation_id": "house_vance",
+      "role": "Covert Reconnaissance Agent"
+    }
+  ],
+  "stations_and_ships": [
+    {
+      "id": "station_aurelia_prime",
+      "name": "Aurelia-Prime",
+      "aliases": [
+        "Imperial Crown Station",
+        "Aurelia Citadel"
+      ],
+      "type": "Orbital Space Station",
+      "is_homonym_risk": true,
+      "owner_id": "house_aurelius",
+      "description": "The central administrative citadel station orbiting the imperial capital planet."
+    },
+    {
+      "id": "ship_aurelia_prime",
+      "name": "Aurelia-Prime",
+      "aliases": [
+        "Imperial Flagship Aurelia"
+      ],
+      "type": "Dreadnought Battleship",
+      "is_homonym_risk": true,
+      "owner_id": "house_aurelius",
+      "description": "The supreme command dreadnought of the Imperial Fleet, sharing the name of the orbital citadel."
+    },
+    {
+      "id": "ship_vanguard_1",
+      "name": "Vanguard",
+      "aliases": [
+        "VD-Vanguard-Alpha"
+      ],
+      "type": "Heavy Strike Cruiser",
+      "is_homonym_risk": true,
+      "owner_id": "corp_vanguard_dyn",
+      "description": "Flagship escort cruiser operated by Vanguard Dynamics mercenary forces."
+    },
+    {
+      "id": "ship_vanguard_2",
+      "name": "Vanguard",
+      "aliases": [
+        "Valerius Vanguard"
+      ],
+      "type": "Assault Transport Ship",
+      "is_homonym_risk": true,
+      "owner_id": "house_valerius",
+      "description": "Heavy armored troop transport ship operated directly by House Valerius."
+    },
+    {
+      "id": "station_cygnus_hub",
+      "name": "Cygnus Prime Station",
+      "aliases": [
+        "The Neural Nexus"
+      ],
+      "type": "Data Research Station",
+      "is_homonym_risk": false,
+      "owner_id": "corp_cygnus",
+      "description": "Deep-space orbital supercomputing research center hosting the central AI core of Cygnus."
+    },
+    {
+      "id": "station_iron_forge",
+      "name": "Iron Forge Citadel",
+      "aliases": [
+        "Valerius Shipyard-1"
+      ],
+      "type": "Orbital Shipyard",
+      "is_homonym_risk": false,
+      "owner_id": "house_valerius",
+      "description": "Massive orbital industrial shipyard producing heavy capital warships for House Valerius."
+    }
+  ],
+  "hierarchy": [
+    {
+      "parent_id": "house_aurelius",
+      "child_id": "house_valerius",
+      "relation_type": "Vassal Feudal House",
+      "level": 2
+    },
+    {
+      "parent_id": "house_aurelius",
+      "child_id": "house_vance",
+      "relation_type": "Vassal Feudal House",
+      "level": 2
+    },
+    {
+      "parent_id": "house_valerius",
+      "child_id": "corp_vanguard_dyn",
+      "relation_type": "Corporate Subsidiary",
+      "level": 3
+    },
+    {
+      "parent_id": "house_vance",
+      "child_id": "corp_cygnus",
+      "relation_type": "Corporate Subsidiary",
+      "level": 3
+    },
+    {
+      "parent_id": "house_aurelius",
+      "child_id": "corp_aetheric",
+      "relation_type": "Chartered Imperial Corporation",
+      "level": 3
+    },
+    {
+      "parent_id": "corp_vanguard_dyn",
+      "child_id": "ship_vanguard_1",
+      "relation_type": "Corporate Fleet Vessel",
+      "level": 4
+    },
+    {
+      "parent_id": "house_valerius",
+      "child_id": "ship_vanguard_2",
+      "relation_type": "Direct Military Vessel",
+      "level": 4
+    },
+    {
+      "parent_id": "house_aurelius",
+      "child_id": "station_aurelia_prime",
+      "relation_type": "Imperial Seat Station",
+      "level": 4
+    },
+    {
+      "parent_id": "house_aurelius",
+      "child_id": "ship_aurelia_prime",
+      "relation_type": "Imperial Flagship",
+      "level": 4
+    },
+    {
+      "parent_id": "corp_cygnus",
+      "child_id": "station_cygnus_hub",
+      "relation_type": "Corporate Research Facility",
+      "level": 4
+    },
+    {
+      "parent_id": "house_valerius",
+      "child_id": "station_iron_forge",
+      "relation_type": "Primary Naval Dockyard",
+      "level": 4
+    }
+  ],
+  "timeline": [
+    {
+      "event_id": "evt_3012_foundation",
+      "year": 3012,
+      "title": "Charter of Aurelia Sector",
+      "description": "Empress Cassandria Aurelius establishes the Aurelia Imperial Hegemony, distributing planetary fiefdoms to Great Houses.",
+      "participant_ids": [
+        "house_aurelius",
+        "person_aurelius_1"
+      ]
+    },
+    {
+      "event_id": "evt_3025_schism",
+      "year": 3025,
+      "title": "The Iron War Schism",
+      "description": "House Valerius launches an armed trade rebellion against imperial tariffs, ending with the Treaty of Iron Forge.",
+      "participant_ids": [
+        "house_valerius",
+        "house_aurelius",
+        "person_valerius_1"
+      ]
+    },
+    {
+      "event_id": "evt_3030_vanguard_founding",
+      "year": 3030,
+      "title": "Chartering of Vanguard Dynamics",
+      "description": "Vanguard Dynamics is established as an official corporate security contractor under House Valerius charter.",
+      "participant_ids": [
+        "corp_vanguard_dyn",
+        "house_valerius"
+      ]
+    },
+    {
+      "event_id": "evt_3038_cygnus_breakthrough",
+      "year": 3038,
+      "title": "Quantum Neural Uplink Breakthrough",
+      "description": "Cygnus Neural Systems unveils the first fully autonomous AI command node at Cygnus Prime Station.",
+      "participant_ids": [
+        "corp_cygnus",
+        "person_cygnus_lead",
+        "station_cygnus_hub"
+      ]
+    },
+    {
+      "event_id": "evt_3042_aetheric_outbreak",
+      "year": 3042,
+      "title": "Bio-Strain Contamination Incident",
+      "description": "An experimental gene-agent breaks containment in an Aetheric BioTech lab, requiring orbital quarantine by House Vance.",
+      "participant_ids": [
+        "corp_aetheric",
+        "house_vance",
+        "person_ceo_aetheric"
+      ]
+    },
+    {
+      "event_id": "evt_3045_aurelia_collision",
+      "year": 3045,
+      "title": "The Aurelia-Prime Target Confusion Incident",
+      "description": "Ambiguous order coordinates sent to Dreadnought Aurelia-Prime cause accidental targeting of Station Aurelia-Prime.",
+      "participant_ids": [
+        "ship_aurelia_prime",
+        "station_aurelia_prime",
+        "person_captain_elena"
+      ]
+    },
+    {
+      "event_id": "evt_3048_vanguard_clash",
+      "year": 3048,
+      "title": "Battle of the Twin Vanguards",
+      "description": "Vanguard Dynamics strike cruiser Vanguard accidentally engages House Valerius transport Vanguard due to matching IFF callsigns.",
+      "participant_ids": [
+        "ship_vanguard_1",
+        "ship_vanguard_2",
+        "person_vanguard_adm"
+      ]
+    },
+    {
+      "event_id": "evt_3050_pact_of_stars",
+      "year": 3050,
+      "title": "The Tri-House Cyber Accord",
+      "description": "Houses Aurelius, Valerius, and Vance sign a non-aggression neural pact, integrating security intelligence networks.",
+      "participant_ids": [
+        "house_aurelius",
+        "house_valerius",
+        "house_vance",
+        "person_agent_nyx",
+        "person_vance_1"
+      ]
+    }
+  ]
+}

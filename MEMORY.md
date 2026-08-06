@@ -14,14 +14,33 @@
 - Прогресс по шагам PLAN.md: **0 из 3** скриптов написано, генерация синтетики не запускалась,
   верификация не проводилась.
 
+## Git
+
+- Remote: **https://github.com/exist-ty/graphrag-project** (ветка `main`).
+- Репозиторий инициализирован локально 2026-08-06 (`git init -b main`), первый коммит — только
+  документация. `gh` CLI на машине **не установлен** — работать через обычный `git`, не через `gh`.
+- Под gitignore: `.env`, `.venv/`, `rag_storage/`, `data/generated/`, `pip_install.log`,
+  `orchestration/runs/` (сырые JSON-ответы делегированных вызовов `agy`).
+- Коммиты делать по ходу работы, не копить.
+
 ## Подтверждённые технические факты
 
 - Модели Google AI Studio подтверждены доступными на аккаунте прямым вызовом `GET
   /v1beta/models`: `gemini-3.6-flash` (LLM для извлечения сущностей/связей),
   `gemini-embedding-2` (embedding).
-- `embedding_dim` для `gemini-embedding-2` **ещё не проверен эмпирически** — это блокирующий шаг
-  перед фиксацией `EmbeddingFunc` в `build_kg.py` (см. PLAN.md, раздел 2): у `-001` размерность
-  отличалась от заявленной, у `-2` она не публикуется в листинге API.
+- `embedding_dim` для `gemini-embedding-2` **проверен эмпирически** (2026-08-06, прямой вызов
+  `embedContent`): нативная размерность — **3072**; `output_dimensionality` тоже поддерживается,
+  проверены 768 / 1536 / 3072 — все возвращают ровно запрошенную длину. Проект фиксирует **3072**.
+  Блокирующий шаг из PLAN.md раздел 2 — закрыт.
+- **Ловушка двойной обёртки в LightRAG**: `lightrag.llm.gemini.gemini_embed` уже декорирована
+  `@wrap_embedding_func_with_attrs(embedding_dim=1536, model_name="gemini-embedding-001")`. Оборачивать
+  надо `gemini_embed.func` (`partial(gemini_embed.func, model="gemini-embedding-2")`), иначе внутренняя
+  обёртка переопределит настройки и размерность молча уедет в 1536.
+- Порядок инициализации LightRAG 1.5.5: `LightRAG(...)` → `await rag.initialize_storages()` →
+  `await initialize_pipeline_status()` (из `lightrag.kg.shared_storage`); закрытие —
+  `await rag.finalize_storages()`. Пропуск `initialize_pipeline_status()` — типичная причина зависаний.
+- `QueryParam.mode` допускает `local|global|hybrid|naive|mix|bypass` (дефолт `mix`), а
+  `enable_rerank` по умолчанию `True` — реранкер в проекте не сконфигурирован, ставим `False` явно.
 - `agy` CLI (Antigravity CLI, v1.1.10, `D:\.gemini\agy\agy.exe`, в PATH как `agy`) проверен
   живыми вызовами: headless-режим (`--print`/`--output-format json`) работает,
   `--conversation <id>` реально продолжает сессию с сохранением контекста, `agy agent`/`agy
