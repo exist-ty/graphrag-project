@@ -1,97 +1,96 @@
-# Оркестрация через agy CLI
+# Orchestration via agy CLI
 
-План использования локального `agy.exe` (Antigravity CLI, v1.1.10, найден в `D:\.gemini\agy\agy.exe`,
-доступен в PATH как `agy`) как внешнего исполнителя, которого я (Claude Code) вызываю через
-`Bash`-инструмент для делегирования рутинных подзадач в проекте `graphrag-project`.
+A plan for using the local `agy.exe` (Antigravity CLI, v1.1.10, found at `D:\.gemini\agy\agy.exe`,
+available in PATH as `agy`) as an external executor that I (Claude Code) call via the
+`Bash` tool to delegate routine subtasks in the `graphrag-project` project.
 
-Всё ниже проверено живыми вызовами `agy` 2026-08-06, а не взято из `--help` вслепую.
+Everything below was verified using live `agy` calls on 2026-08-06, rather than blindly taken from `--help`.
 
-## Модели
+## Models
 
 `agy models`:
 
-| Модель | Класс | Когда использовать в этом проекте |
+| Model | Class | When to use in this project |
 |---|---|---|
-| `claude-sonnet-4-6` | сильная, дорогая | код-ревью пайплайна LightRAG, отладка неочевидных багов, финальная проверка перед вводом в PLAN.md |
-| `claude-opus-4-6-thinking` | самая сильная, самая дорогая | архитектурные решения (например, выбор режима LightRAG query, схема `ground_truth.json`) — редко |
-| `gpt-oss-120b-medium` | дешёвая/быстрая | массовая рутина: генерация болванок синтетических документов, простые скрипты, парсинг, проверки формата |
-| `gemini-3.6-flash-*` (high/medium/low) | дешёвая, быстрая | то же, что gpt-oss, плюс уместна там, где хочется модель того же семейства, что и сама LLM в пайплайне (`gemini-3.6-flash`), для консистентности стиля синтетических текстов |
-| `gemini-3.1-pro-high` | сильная, большой контекст | **основная рабочая лошадь для крупных задач**: код, который надо писать, держа в голове много разнородного контекста (схема данных + форматы хранилищ + смежные модули), проектирование метрик и алгоритмов, разбор больших логов. Особенно хороша с файловым ТЗ и `--add-dir` — читает нужное сама |
-| `gemini-3.5-flash-*`, `gemini-3.1-pro-low` | запасные варианты | если основная модель недоступна/квота исчерпана |
+| `claude-sonnet-4-6` | strong, expensive | code review of the LightRAG pipeline, debugging of non-obvious bugs, final check before adding to PLAN.md |
+| `claude-opus-4-6-thinking` | strongest, most expensive | architectural decisions (e.g., choice of LightRAG query mode, `ground_truth.json` schema) — rarely |
+| `gpt-oss-120b-medium` | cheap/fast | mass routine: generation of synthetic document templates, simple scripts, parsing, format checks |
+| `gemini-3.6-flash-*` (high/medium/low) | cheap, fast | same as gpt-oss, plus appropriate when you want a model from the same family as the LLM itself in the pipeline (`gemini-3.6-flash`), to keep the style of synthetic texts consistent |
+| `gemini-3.1-pro-high` | strong, large context | **main workhorse for large tasks**: code that needs to be written while keeping a lot of heterogeneous context in mind (data schema + storage formats + adjacent modules), designing metrics and algorithms, analyzing large logs. Especially good with a file-based task description and `--add-dir` — reads what is needed on its own |
+| `gemini-3.5-flash-*`, `gemini-3.1-pro-low` | backup options | if the main model is unavailable or the quota is exhausted |
 
-Подтверждено смоук-тестом (`--print "Reply with exactly one word: pong"`): `gpt-oss-120b-medium` и
-`claude-sonnet-4-6` отвечают корректно за ~3 секунды.
+Confirmed by a smoke test (`--print "Reply with exactly one word: pong"`): `gpt-oss-120b-medium` and
+`claude-sonnet-4-6` reply correctly in ~3 seconds.
 
-**Важно про стоимость вызова**: даже тривиальный промпт тянет за собой ~20-27k input-токенов
-системного контекста, на реальных промптах делегирования — 29-46k (замерено эмпирически). Значит
-агрегировать мелкие запросы в один более крупный промпт выгоднее, чем слать много мелких
+**Important note on call cost**: even a trivial prompt drags in ~20-27k input tokens
+of system context; on real delegation prompts, it is 29-46k (measured empirically). This means
+aggregating small requests into a single larger prompt is more cost-effective than sending many small
 `agy --print`.
 
-**Кэш между вызовами всё-таки есть** (уточнено 2026-08-06 на реальных прогонах): у gemini-моделей
-`cache_read_tokens` доходил до 77-86k, тогда как у `claude-sonnet-4-6` и `gpt-oss-120b-medium` он
-оставался `0`. Раннее наблюдение «кэширование не подтверждено» относилось только к тривиальным
-тестовым промптам и его не следует переносить на боевые.
+**Inter-call caching does exist after all** (clarified on 2026-08-06 during real runs): for gemini models,
+`cache_read_tokens` reached up to 77-86k, whereas for `claude-sonnet-4-6` and `gpt-oss-120b-medium` it
+remained `0`. The earlier observation that "caching is not confirmed" applied only to trivial
+test prompts and should not be generalized to production runs.
 
-**Gemini-модели ведут себя агентно даже на чисто текстовой задаче.** `gemini-3.6-flash-high` на
-задании «верни один блок кода» полез в инструмент, требующий разрешения `command`; headless-режим
-не может спросить пользователя и авто-отклонил вызов. Итог: `status: SUCCESS`, `output_tokens`
-12390 — и **пустой `response`**. Настоящая причина видна только в stderr, в JSON её нет. Отсюда два
-правила: (1) всегда читать stderr, а не только `status`; (2) пустой `response` при ненулевом
-`output_tokens` — это подавленный вызов инструмента, а не «модель ничего не сказала». Причём
-результат агент успел записать прямо в файл проекта — делегированный вызов способен изменить
-рабочее дерево и **без** `--dangerously-skip-permissions`, так что `git status` после прогона
-проверять обязательно.
+**Gemini models behave agentically even on purely text tasks.** For instance, `gemini-3.6-flash-high` on a task
+to "return a single block of code" tried to use a tool that requires the `command` permission; headless mode
+cannot prompt the user and auto-declined the call. Result: `status: SUCCESS`, `output_tokens`
+12390 — and an **empty `response`**. The real reason is only visible in stderr, it is not present in the JSON. From this follow two
+rules: (1) always read stderr, not just the `status`; (2) an empty `response` with a non-zero
+`output_tokens` is a suppressed tool call, not "the model said nothing". Furthermore, the
+agent managed to write the result directly to the project file — a delegated call can modify the
+working tree even **without** `--dangerously-skip-permissions`, so checking `git status` after a run
+is mandatory.
 
-## Параметры оркестрации
+## Orchestration Parameters
 
-Флаги, которые реально важны для делегирования (полный список — `agy --help` / см. ниже):
+Flags that are actually important for delegation (for the full list, see `agy --help` / below):
 
-- `--print` / `-p` / `--prompt` — headless-режим, единственный вменяемый способ вызывать `agy` из
-  моей автоматизации (без него CLI открывает интерактивный TUI).
-- `--model <name>` — выбор модели из таблицы выше. Обязателен на каждом вызове — иначе используется
-  дефолт CLI, который не гарантированно совпадает с тем, что нужно этой задаче.
-- `--output-format json` — структурированный ответ вида
+- `--print` / `-p` / `--prompt` — headless mode, the only reasonable way to call `agy` from
+  my automation (without it, the CLI opens an interactive TUI).
+- `--model <name>` — model selection from the table above. Mandatory for each call — otherwise, the
+  CLI default is used, which is not guaranteed to match what is needed for the task.
+- `--output-format json` — structured response of the form
   `{"conversation_id","status","response","duration_seconds","num_turns","usage":{...}}`.
-  Использовать вместо текстового вывода везде, где результат парсится программно (а не читается
-  человеком) — так проще ловить `status != "SUCCESS"`.
-- `--json-schema <строка-или-путь-к-файлу>` — принудительная JSON-схема для финального результата
-  (работает с `stream-json`). Полезно, когда нужен машиночитаемый результат конкретной формы —
-  например, батч синтетических документов в виде JSON-массива.
-- `--effort low|medium|high` — управление глубиной рассуждений. Для рутины (генерация болванок,
-  форматирование) — `low`; для код-ревью/отладки — `medium`/`high`.
-  **Поддерживается не всеми моделями.** У `claude-sonnet-4-6` флага нет: вызов немедленно падает с
+  Use instead of text output wherever the result is parsed programmatically (rather than read by a
+  human) — this makes it easier to catch `status != "SUCCESS"`.
+- `--json-schema <строка-или-путь-к-файлу>` — forced JSON schema for the final result
+  (works with `stream-json`). Useful when a machine-readable result of a specific form is needed —
+  for example, a batch of synthetic documents as a JSON array.
+- `--effort low|medium|high` — reasoning depth control. For routine tasks (template generation,
+  formatting) — `low`; for code reviews/debugging — `medium`/`high`.
+  **Not supported by all models.** `claude-sonnet-4-6` does not have this flag: the call immediately fails with
   `invalid model selection (--model "claude-sonnet-4-6" --effort "high"): --effort is not supported`,
-  `status: ERROR`, ноль потраченных токенов (проверено 2026-08-06). У gemini-моделей глубина уже
-  зашита в имя (`-high`/`-medium`/`-low`), так что `--effort` им тоже передавать не нужно —
-  фактически флаг актуален только для `gpt-oss-120b-medium`.
-- `--conversation <id>` / `--continue` (`-c`) — продолжение сессии. Подтверждено: второй вызов с
-  `--conversation <id из первого ответа>` реально видит контекст первого (протестировано на
-  секретном коде — модель вспомнила значение). Полезно для многошаговых задач одному и тому же
-  под-агенту, но входные токены накапливаются линейно (в тесте: 20.7k → 41.5k на втором шаге) —
-  не держать сессию открытой дольше, чем реально нужно.
-- `--add-dir <path>` (повторяемый) — расширяет рабочую директорию агента за пределы дефолтной.
-  Использовать, чтобы явно ограничить `agy` только нужными путями проекта
-  (`--add-dir D:\projects\graphrag-project`), а не давать доступ ко всему диску.
-- `--mode accept-edits|plan` — `plan` для задач вида "предложи изменения, не применяй";
-  `accept-edits`, когда делегируем именно правку файлов и доверяем результату (после code review).
-- `--dangerously-skip-permissions` — отключает запросы подтверждения на каждый tool call.
-  **Не использовать по умолчанию.** Уместно только для полностью автономных прогонов с узким
-  `--add-dir` и низким риском (например, генерация синтетических `.md` в `data/generated/`),
-  и только после явного согласия пользователя на конкретный прогон.
-- `--sandbox` — ограничения терминала для агента. Использовать вместе со
-  `--dangerously-skip-permissions`, если всё же идём на автономный прогон — снижает риск того, что
-  агент случайно тронет что-то за пределами задачи.
-- `--print-timeout` (по умолчанию 5m) — поднять для длинных батч-генераций (например, полной
-  партии ~1000 синтетических документов из PLAN.md), иначе процесс оборвётся по таймауту.
-- `--project` / `--new-project` — изоляция состояния между несвязанными задачами; для одноразовых
-  вызовов из-под меня можно не использовать (каждый `--print` без `--conversation` и так стартует
-  свежий).
-- `agy agent` / `agy agents` — список сконфигурированных именных агентов; на момент написания
-  плана пуст (`Available agents:` без записей). Значит `--agent <name>` сейчас использовать нечем —
-  делегирование идёт напрямую через `--model`, без предустановленных ролей.
-- `agy plugin list` — плагины не подключены (`No imported plugins.`).
+  `status: ERROR`, zero tokens spent (verified 2026-08-06). For gemini models, the depth is already
+  baked into the name (`-high`/`-medium`/`-low`), so `--effort` does not need to be passed to them either —
+  practically, the flag is relevant only for `gpt-oss-120b-medium`.
+- `--conversation <id>` / `--continue` (`-c`) — session continuation. Confirmed: a second call with
+  `--conversation <id из первого ответа>` actually sees the context of the first one (tested on
+  secret code — the model recalled the value). Useful for multi-step tasks assigned to the same
+  sub-agent, but input tokens accumulate linearly (in the test: 20.7k → 41.5k on the second step) —
+  not keeping the session open longer than actually needed.
+- `--add-dir <path>` (repeatable) — extends the agent's working directory beyond the default one.
+  Use to explicitly restrict `agy` only to the necessary project paths
+  (`--add-dir D:\projects\graphrag-project`), rather than granting access to the entire disk.
+- `--mode accept-edits|plan` — `plan` for tasks like "propose changes, do not apply";
+  `accept-edits` when we delegate actual file editing and trust the result (after code review).
+- `--dangerously-skip-permissions` — disables confirmation prompts for each tool call.
+  **Do not use by default.** Appropriate only for fully autonomous runs with a narrow
+  `--add-dir` and low risk (for example, generating synthetic `.md` files in `data/generated/`),
+  and only after explicit user consent for that specific run.
+- `--sandbox` — terminal sandbox constraints for the agent. Use together with
+  `--dangerously-skip-permissions` if we still proceed with an autonomous run — reduces the risk of the
+  agent accidentally touching something outside the task scope.
+- `--print-timeout` (default 5m) — increase for long batch generations (for example, the complete
+  batch of ~1000 synthetic documents from PLAN.md), otherwise the process will abort due to a timeout.
+- `--project` / `--new-project` — state isolation between unrelated tasks; can be omitted for one-off
+  calls initiated by me (each `--print` without `--conversation` starts fresh anyway).
+- `agy agent` / `agy agents` — list of configured named agents; at the time of writing this
+  plan, it is empty (`Available agents:` with no entries). This means there is currently nothing to use `--agent <name>` for —
+  delegation is done directly via `--model`, without pre-installed roles.
+- `agy plugin list` — no plugins are connected (`No imported plugins.`).
 
-## Схема JSON-ответа (`--output-format json`)
+## JSON Response Schema (`--output-format json`)
 
 ```json
 {
@@ -110,85 +109,85 @@
 }
 ```
 
-Проверять `status == "SUCCESS"` перед использованием `response`; при программном разборе — читать
-`usage` для контроля бюджета, если прогон массовый.
+Check `status == "SUCCESS"` before using `response`; during programmatic parsing, read
+`usage` to monitor the budget if it is a mass run.
 
-## Как это встраивается в мою (Claude Code) работу над проектом
+## How this integrates into my (Claude Code) work on the project
 
-Я вызываю `agy` через `Bash`-инструмент как обычный подпроцесс — это не `Agent`-субагент
-(субагенты Claude Code — только модели семейства Claude через мой внутренний `Agent` tool), а
-внешний CLI, чьи stdout/JSON я читаю и использую как результат делегированной подзадачи.
+I call `agy` via the `Bash` tool as a regular subprocess — this is not an `Agent` sub-agent
+(Claude Code sub-agents are only models of the Claude family via my internal `Agent` tool), but
+an external CLI whose stdout/JSON I read and use as the result of a delegated subtask.
 
-Практические сценарии для этого проекта (см. `PLAN.md`):
+Practical scenarios for this project (see `PLAN.md`):
 
-1. **Генерация болванок синтетических документов** (`data/generated/*.md`) — можно распараллелить
-   пачками через `gpt-oss-120b-medium` или `gemini-3.6-flash-low` с `--effort low`, каждый вызов —
-   независимый `--print` без `--conversation` (без накопления контекста). Я валидирую итог сам
-   перед тем, как считать шаг "Верификация" из PLAN.md выполненным.
-2. **Ревью `scripts/build_kg.py` перед прогоном** — один вызов `claude-sonnet-4-6` с `--effort
-   medium`, `--mode plan` (без применения правок), `--add-dir D:\projects\graphrag-project` — как
-   независимая вторая пара глаз перед тем, как я сам ввожу код в эксплуатацию.
-3. **Архитектурные развилки** (выбор режима `query_example.py`, схема `ground_truth.json`) —
-   `claude-opus-4-6-thinking`, `--effort high`, редко и по конкретному вопросу, не как рутинный шаг.
+1. **Generation of synthetic document templates** (`data/generated/*.md`) — can be parallelized
+   in batches via `gpt-oss-120b-medium` or `gemini-3.6-flash-low` with `--effort low`, each call being an
+   independent `--print` without `--conversation` (no context accumulation). I validate the result myself
+   before considering the "Verification" step from PLAN.md as completed.
+2. **Review of `scripts/build_kg.py` before running** — one call to `claude-sonnet-4-6` with `--effort
+   medium`, `--mode plan` (without applying edits), `--add-dir D:\projects\graphrag-project` — as
+   an independent second pair of eyes before I deploy the code myself.
+3. **Architectural choices** (selection of `query_example.py` mode, `ground_truth.json` schema) —
+   `claude-opus-4-6-thinking`, `--effort high`, rarely and on a specific issue, not as a routine step.
 
-Автономные (`--dangerously-skip-permissions`) прогоны — только по отдельному согласию на каждый
-конкретный batch-запуск, не как режим по умолчанию.
+Autonomous (`--dangerously-skip-permissions`) runs — only by separate consent for each
+specific batch run, not as a default mode.
 
-## Главное правило делегирования кода (проверено на прогоне 2026-08-06)
+## The golden rule of code delegation (verified on a run on 2026-08-06)
 
-**Качество делегированного кода определяется не выбором модели, а тем, зафиксирован ли в промпте
-проверенный API.** Без этого модель уверенно пишет по памяти — и промахивается мимо установленной
-версии пакета.
+**The quality of the delegated code is determined not by the model choice, but by whether the verified API
+is fixed in the prompt.** Without this, the model confidently writes from memory — and misses the installed
+package version.
 
-Показательный случай: `gpt-oss-120b-medium` получил задание на `generate_synthetic_data.py` без
-контракта `google-genai` в промпте и написал весь скрипт на **старом, не установленном** SDK
+A telling case: `gpt-oss-120b-medium` was tasked with `generate_synthetic_data.py` without the
+`google-genai` contract in the prompt, and wrote the entire script using the **old, uninstalled** SDK
 `google.generativeai` (`genai.configure()`, `genai.AsyncClient()`, `genai.exceptions.RateLimitError`,
-`generation_config=` вместо `config=`) — то есть код, падающий на первом импорте. Тот же промпт с
-добавленными сигнатурами (`from google import genai`, `client.aio.models.generate_content`,
-иерархия `errors.APIError → ClientError/ServerError`) дал рабочий результат с первого раза.
+`generation_config=` instead of `config=`) — that is, code that crashes on the first import. The same prompt with
+added signatures (`from google import genai`, `client.aio.models.generate_content`,
+the `errors.APIError → ClientError/ServerError` hierarchy) yielded a working result on the first try.
 
-### Как передавать контекст: файлами, а не в аргументе
+### How to pass context: via files, not in the argument
 
-**Не вкладывай большие данные в текст промпта — агенты `agy` свободно читают файлы проекта.**
-Проверено прямым тестом: с `--add-dir D:\Projects\graphrag-project` модель читает
-`data/ground_truth.json` и отвечает по его содержимому, никакого запроса разрешений при этом не
-возникает (в отличие от инструментов, требующих разрешения `command`, — вот те headless
-авто-отклоняет).
+**Do not embed large data into the prompt text — `agy` agents can freely read project files.**
+Verified by a direct test: with `--add-dir D:\Projects\graphrag-project`, the model reads
+`data/ground_truth.json` and replies based on its contents, without prompting for any permissions
+(unlike tools requiring the `command` permission — those are auto-declined in headless
+mode).
 
-Есть и жёсткая техническая причина: промпт передаётся аргументом командной строки, а в Windows
-лимит на всю командную строку — **32767 байт**. На кириллице это ~16 тысяч символов, потому что
-UTF-8 тратит на неё по 2 байта. Попытка передать ТЗ на 38k символов, а затем урезанное до 26k,
-одинаково падала ещё до запуска модели:
+There is also a hard technical reason: the prompt is passed as a command line argument, and in Windows,
+the limit for the entire command line is **32767 bytes**. In Cyrillic, this is ~16 thousand characters, because
+UTF-8 uses 2 bytes per character. An attempt to pass a task description of 38k characters, and then one trimmed to 26k,
+failed in the same way even before the model started:
 
 ```
 /d/.gemini/agy/agy: Argument list too long     (exit 126)
 ```
 
-Ошибка приходит от шелла, в `--output-format json` она не попадает вовсе — файл вывода остаётся
-нулевой длины. Стандартный ввод спасением не является: `--print` требует значение аргументом и
-stdin не читает (при `echo ... | agy --print --model X` флаг `--print` съедает `--model` как своё
-значение, и модель отвечает на промпт «--model»).
+The error comes from the shell, and it does not end up in `--output-format json` at all — the output file remains
+of zero length. Standard input is not a savior: `--print` requires the value as an argument and
+does not read stdin (with `echo ... | agy --print --model X`, the `--print` flag consumes `--model` as its
+value, and the model responds to the prompt "--model").
 
-Рабочий паттерн, к которому это приводит:
+The resulting working pattern:
 
-1. Полное ТЗ пишется **файлом** в `orchestration/prompts/`.
-2. Промпт в аргументе — одна короткая строка: «прочитай такой-то файл, это твоё ТЗ, выполни его».
-3. `--add-dir <корень проекта>` даёт доступ к данным; в ТЗ данные упоминаются **путями**, а не
-   вставляются текстом.
+1. The full task description is written **as a file** in `orchestration/prompts/`.
+2. The prompt in the argument is a single short line: "read such-and-such file, this is your task description, execute it".
+3. `--add-dir <корень проекта>` gives access to the data; in the task description, the data is referenced **by paths**, not
+   inserted as text.
 
-Побочная выгода — кэш: в прогоне `gemini-3.1-pro-high` по такому ТЗ `cache_read_tokens` составил
-221k при `input_tokens` 37k, то есть основную часть контекста модель добрала чтением файлов,
-а не через аргумент.
+A side benefit is caching: in a `gemini-3.1-pro-high` run with such a task description, `cache_read_tokens` was
+221k with `input_tokens` 37k, meaning the model fetched the bulk of the context by reading files,
+rather than through the argument.
 
-Отсюда рабочий порядок, а не «просто отправить задачу модели»:
+Hence the working order, rather than "just sending the task to the model":
 
-1. Перед делегированием — интроспекция установленных пакетов (`inspect.signature`,
-   `dataclasses.fields`, чтение исходников в `.venv`), и проверенные сигнатуры вставляются в промпт
-   дословно, вместе с известными ловушками (например, двойная обёртка `gemini_embed`).
-2. Промпт делается **самодостаточным**, без доступа к ФС: иначе headless-вызов утыкается в запрос
-   разрешения и молча возвращает пустоту.
-3. Если задачи связаны между собой — контракт между ними (имя и сигнатура общей функции) задаётся
-   оркестратором в обоих промптах, а не согласовывается моделями между собой.
-4. Результат делегата **всегда** читается и проверяется до запуска. Из фактического прогона: в
-   `build_kg.py` был `glob("*.txt")` при том, что генератор производит `*.md` — синтаксически
-   безупречный код, находящий ноль файлов.
+1. Before delegating — perform introspection of installed packages (`inspect.signature`,
+   `dataclasses.fields`, reading sources in `.venv`), and verified signatures are inserted into the prompt
+   verbatim, along with known pitfalls (e.g., double wrapping of `gemini_embed`).
+2. The prompt is made **self-contained**, without FS access: otherwise the headless call gets stuck on a permission
+   request and silently returns emptiness.
+3. If tasks are interrelated, the contract between them (name and signature of the shared function) is specified
+   by the orchestrator in both prompts, rather than negotiated between the models.
+4. The delegate's result is **always** read and checked before running. From an actual run: in
+   `build_kg.py` there was `glob("*.txt")` even though the generator produces `*.md` — syntactically
+   flawless code that finds zero files.

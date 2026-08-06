@@ -1,185 +1,183 @@
-# MEMORY — текущий контекст проекта
+# MEMORY — current project context
 
-Последнее обновление: 2026-08-06
+Last update: 2026-08-06
 
-## Текущее состояние
+## Current status
 
-- Проект создан в `D:\projects\graphrag-project\`. На диске уже есть: `.venv` (Python 3.12,
-  `lightrag-hku` 1.5.5, `google-genai` 2.16.0, `python-dotenv` 1.2.2), `.env` с `GEMINI_API_KEY`,
-  `.gitignore` (игнорирует `.env`, `.venv/`, `rag_storage/`, `data/generated/`).
-- Все **3 скрипта написаны** и закоммичены (делегированы разным моделям `agy`, см. ниже):
+- The project was created in `D:\projects\graphrag-project\`. Already present on disk: `.venv` (Python 3.12,
+  `lightrag-hku` 1.5.5, `google-genai` 2.16.0, `python-dotenv` 1.2.2), `.env` with `GEMINI_API_KEY`,
+  `.gitignore` (ignores `.env`, `.venv/`, `rag_storage/`, `data/generated/`).
+- All **3 scripts are written** and committed (delegated to different `agy` models, see below):
   `scripts/generate_synthetic_data.py`, `scripts/build_kg.py`, `scripts/query_example.py`.
-- `data/ground_truth.json` — сгенерирован и проверен: 3 дома, 3 мегакорпорации, 8 персон (у всех
-  алиасы/титулы/позывные), 6 станций и кораблей с **реальными омонимами** (`Aurelia-Prime` ×2,
-  `Vanguard` ×2), иерархия глубиной 3 уровня (level 2→4), 8 событий таймлайна.
-- `orchestration.md`, `CLAUDE.md`, `MEMORY.md` — созданы 2026-08-06.
-- Прогресс по PLAN.md: код готов; шаг «Верификация» — seed-проход пройден, дальше по списку
-  генерация малой партии → `build_kg.py` → запросы в разных режимах.
+- `data/ground_truth.json` — generated and verified: 3 houses, 3 megacorporations, 8 personas (all with
+  aliases/titles/callsigns), 6 stations and ships with **real homonyms** (`Aurelia-Prime` ×2,
+  `Vanguard` ×2), 3-level deep hierarchy (level 2→4), 8 timeline events.
+- `orchestration.md`, `CLAUDE.md`, `MEMORY.md` — created on 2026-08-06.
+- Progress on PLAN.md: code is ready; "Verification" step — seed pass is complete, next on the list is
+  small batch generation → `build_kg.py` → queries in different modes.
 
-## Делегирование: что реально сработало
+## Delegation: what actually worked
 
-Схема прогона: я (Claude Code) — оркестратор, готовлю самодостаточные промпты с **верифицированными
-сигнатурами API** (интроспекция установленных пакетов, а не память модели), `agy --print` пишет код,
-я его читаю и правлю. Промпты лежат в `orchestration/prompts/`, извлечение из JSON —
-`orchestration/extract.py`, сырые ответы — `orchestration/runs/` (gitignored).
+Run scheme: I (Claude Code) am the orchestrator, preparing self-contained prompts with **verified
+API signatures** (introspection of installed packages, not model memory), `agy --print` writes the code,
+I read and fix it. Prompts are located in `orchestration/prompts/`, extraction from JSON is in
+`orchestration/extract.py`, raw responses are in `orchestration/runs/` (gitignored).
 
-- Маршрутизация: `build_kg.py` → `claude-sonnet-4-6` (самая тонкая интеграция),
-  `query_example.py` и `generate_synthetic_data.py` → `gemini-3.6-flash-high`.
-- **`gpt-oss-120b-medium` провалил `generate_synthetic_data.py`**: написал весь скрипт на старом,
-  не установленном SDK `google.generativeai` (`genai.configure`, `genai.AsyncClient`,
-  `genai.exceptions.RateLimitError`, `generation_config=`). Причина — в промпте не был зафиксирован
-  контракт `google-genai`. После добавления точных сигнатур в промпт и переезда на
-  `gemini-3.6-flash-high` результат стал рабочим с первого раза.
-- **Вывод для будущих делегирований**: качество результата определяется не столько моделью, сколько
-  тем, зафиксирован ли в промпте проверенный API. Без этого модель уверенно пишет по памяти —
-  и промахивается мимо версии пакета.
-- Что пришлось чинить руками после делегатов: `build_kg.py` искал `*.txt`, тогда как генератор
-  производит `*.md` (нашёл бы ноль файлов).
+- Routing: `build_kg.py` → `claude-sonnet-4-6` (the finest integration),
+  `query_example.py` and `generate_synthetic_data.py` → `gemini-3.6-flash-high`.
+- **`gpt-oss-120b-medium` failed `generate_synthetic_data.py`**: it wrote the entire script using the old,
+  uninstalled `google.generativeai` SDK (`genai.configure`, `genai.AsyncClient`,
+  `genai.exceptions.RateLimitError`, `generation_config=`). The reason was that the `google-genai` contract
+  was not locked down in the prompt. After adding precise signatures to the prompt and switching to
+  `gemini-3.6-flash-high`, the result worked on the first try.
+- **Key takeaway for future delegations**: the quality of the result is determined not so much by the model, but by
+  whether the verified API is locked down in the prompt. Without this, the model confidently writes from memory —
+  and misses the package version.
+- What had to be fixed manually after delegates: `build_kg.py` was looking for `*.txt`, whereas the generator
+  produces `*.md` (resulting in zero files found).
 
 ## Git
 
-- Remote: **https://github.com/exist-ty/graphrag-project** (ветка `main`).
-- Репозиторий инициализирован локально 2026-08-06 (`git init -b main`), первый коммит — только
-  документация. `gh` CLI на машине **не установлен** — работать через обычный `git`, не через `gh`.
-- Под gitignore: `.env`, `.venv/`, `rag_storage/`, `data/generated/`, `pip_install.log`,
-  `orchestration/runs/` (сырые JSON-ответы делегированных вызовов `agy`).
-- Коммиты делать по ходу работы, не копить.
+- Remote: **https://github.com/exist-ty/graphrag-project** (branch `main`).
+- Repository initialized locally on 2026-08-06 (`git init -b main`), the first commit contains only
+  documentation. `gh` CLI **is not installed** on the machine — work via standard `git`, not `gh`.
+- Under gitignore: `.env`, `.venv/`, `rag_storage/`, `data/generated/`, `pip_install.log`,
+  `orchestration/runs/` (raw JSON responses of delegated `agy` calls).
+- Make commits as you go, do not accumulate them.
 
-## Подтверждённые технические факты
+## Verified technical facts
 
-- Модели Google AI Studio подтверждены доступными на аккаунте прямым вызовом `GET
-  /v1beta/models`: `gemini-3.6-flash` (LLM для извлечения сущностей/связей),
+- Google AI Studio models are verified as available on the account via a direct `GET
+  /v1beta/models` call: `gemini-3.6-flash` (LLM for entity/relation extraction),
   `gemini-embedding-2` (embedding).
-- `embedding_dim` для `gemini-embedding-2` **проверен эмпирически** (2026-08-06, прямой вызов
-  `embedContent`): нативная размерность — **3072**; `output_dimensionality` тоже поддерживается,
-  проверены 768 / 1536 / 3072 — все возвращают ровно запрошенную длину. Проект фиксирует **3072**.
-  Блокирующий шаг из PLAN.md раздел 2 — закрыт.
-- **Ловушка двойной обёртки в LightRAG**: `lightrag.llm.gemini.gemini_embed` уже декорирована
-  `@wrap_embedding_func_with_attrs(embedding_dim=1536, model_name="gemini-embedding-001")`. Оборачивать
-  надо `gemini_embed.func` (`partial(gemini_embed.func, model="gemini-embedding-2")`), иначе внутренняя
-  обёртка переопределит настройки и размерность молча уедет в 1536.
-- **ЛОВУШКА БАТЧА У `gemini-embedding-2`** (найдена 2026-08-06 на первой реальной ингестии):
-  модель на вход из НЕСКОЛЬКИХ текстов возвращает РОВНО ОДИН вектор — молча, без ошибки.
-  Проверено прямыми вызовами `embed_content` на 1/2/4 текстах: во всех случаях
-  `len(response.embeddings) == 1`. Штатный биндинг `lightrag.llm.gemini.gemini_embed` шлёт весь
-  батч одним запросом и ждёт N векторов, поэтому ингестия падала с
+- `embedding_dim` for `gemini-embedding-2` **verified empirically** (on 2026-08-06, direct
+  `embedContent` call): native dimensionality is **3072**; `output_dimensionality` is also supported,
+  768 / 1536 / 3072 were verified — all return exactly the requested length. The project locks in **3072**.
+  The blocking step from PLAN.md section 2 is closed.
+- **Double-wrapping trap in LightRAG**: `lightrag.llm.gemini.gemini_embed` is already decorated with
+  `@wrap_embedding_func_with_attrs(embedding_dim=1536, model_name="gemini-embedding-001")`. You must wrap
+  `gemini_embed.func` (`partial(gemini_embed.func, model="gemini-embedding-2")`), otherwise the inner wrapper
+  will override the settings and the dimensionality will silently drop to 1536.
+- **BATCH TRAP OF `gemini-embedding-2`** (found on 2026-08-06 during the first real ingestion):
+  when given MULTIPLE texts as input, the model returns EXACTLY ONE vector — silently, without throwing an error.
+  Verified with direct `embed_content` calls on 1/2/4 texts: in all cases,
+  `len(response.embeddings) == 1`. The default binding `lightrag.llm.gemini.gemini_embed` sends the entire
+  batch in a single request and expects N vectors, causing ingestion to crash with
   `IndexFlushError: NanoVectorDBStorage[entities] ... Vector count mismatch: expected 4 vectors
-  but got 1`. Решение в `build_kg.py` — обёртка `embed_texts_one_by_one`: батч разворачивается в
-  отдельные запросы (semaphore=4) и склеивается через `np.vstack`. Опасность ловушки в том, что
-  без проверки количества векторов в индекс попали бы неверные эмбеддинги.
-- **`ainsert` не бросает исключение, когда внутренний пайплайн LightRAG останавливается.** В
-  провальном прогоне скрипт отрапортовал «проингестировано 3/3», хотя векторные индексы
-  (`vdb_entities.json`, `vdb_relationships.json`, `vdb_chunks.json`) вообще не были созданы.
-  Добавлена функция `_report_doc_statuses()`: читает `kv_store_doc_status.json` и ругается, если
-  хоть один документ не в статусе `processed`. Признак успешной ингестии — наличие непустых
-  `vdb_*.json`, а не отсутствие исключения.
-- Порядок инициализации LightRAG 1.5.5: `LightRAG(...)` → `await rag.initialize_storages()` →
-  `await initialize_pipeline_status()` (из `lightrag.kg.shared_storage`); закрытие —
-  `await rag.finalize_storages()`. Пропуск `initialize_pipeline_status()` — типичная причина зависаний.
-- `QueryParam.mode` допускает `local|global|hybrid|naive|mix|bypass` (дефолт `mix`), а
-  `enable_rerank` по умолчанию `True` — реранкер в проекте не сконфигурирован, ставим `False` явно.
-- `agy` CLI (Antigravity CLI, v1.1.10, `D:\.gemini\agy\agy.exe`, в PATH как `agy`) проверен
-  живыми вызовами: headless-режим (`--print`/`--output-format json`) работает,
-  `--conversation <id>` реально продолжает сессию с сохранением контекста, `agy agent`/`agy
-  plugin list` — пусты (именных агентов и плагинов не сконфигурировано). Подробности и параметры
-  — в `orchestration.md`.
-- Стоимость вызова `agy`: даже тривиальный промпт даёт ~20-27k input-токенов системного оверхеда.
-  На реальных промптах делегирования — 29-46k input. **Кэш между отдельными `--print`-вызовами
-  всё-таки работает**: у gemini-моделей `cache_read_tokens` был 77k и 86k (у `claude-sonnet-4-6` и
-  `gpt-oss-120b-medium` — 0). Раннее наблюдение «кэш не подтверждён» относилось только к
-  тривиальным тестовым промптам.
-- **`--effort` не поддерживается моделью `claude-sonnet-4-6`**: вызов падает с
+  but got 1`. The solution in `build_kg.py` is the `embed_texts_one_by_one` wrapper: the batch is unpacked into
+  separate requests (semaphore=4) and stacked via `np.vstack`. The danger of this trap is that without
+  verifying the vector count, incorrect embeddings would have ended up in the index.
+- **`ainsert` does not throw an exception when the internal LightRAG pipeline stops.** In a failed run,
+  the script reported "ingested 3/3" even though vector indexes (`vdb_entities.json`,
+  `vdb_relationships.json`, `vdb_chunks.json`) were not created at all.
+  Added `_report_doc_statuses()` function: it reads `kv_store_doc_status.json` and raises an error if at
+  least one document is not in the `processed` status. A sign of successful ingestion is the presence of non-empty
+  `vdb_*.json` files, not the lack of an exception.
+- LightRAG 1.5.5 initialization order: `LightRAG(...)` → `await rag.initialize_storages()` →
+  `await initialize_pipeline_status()` (from `lightrag.kg.shared_storage`); teardown is
+  `await rag.finalize_storages()`. Skipping `initialize_pipeline_status()` is a common cause of freezes.
+- `QueryParam.mode` allows `local|global|hybrid|naive|mix|bypass` (default `mix`), and
+  `enable_rerank` defaults to `True` — the reranker is not configured in the project, so set `False` explicitly.
+- `agy` CLI (Antigravity CLI, v1.1.10, `D:\.gemini\agy\agy.exe`, in PATH as `agy`) verified with live
+  calls: headless mode (`--print`/`--output-format json`) works, `--conversation <id>` successfully
+  resumes the session while preserving context, `agy agent`/`agy plugin list` are empty (no named agents
+  or plugins are configured). Details and options are in `orchestration.md`.
+- `agy` call cost: even a trivial prompt incurs ~20-27k input tokens of system overhead. On real
+  delegated prompts: 29-46k input. **Caching between separate `--print` calls does work**: gemini models
+  had `cache_read_tokens` of 77k and 86k (for `claude-sonnet-4-6` and `gpt-oss-120b-medium` it was 0). The
+  earlier observation "caching not confirmed" only applied to trivial test prompts.
+- **`--effort` is not supported by the `claude-sonnet-4-6` model**: the call fails with
   `invalid model selection ... --effort is not supported for model "claude-sonnet-4-6"`,
-  `status: ERROR`, ноль потраченных токенов. Рекомендация в `orchestration.md` использовать
-  `claude-sonnet-4-6 --effort medium` — неверна, флаг надо просто опускать.
-- **Gemini-модели в `agy` ведут себя агентно даже на чисто текстовой задаче**: `gemini-3.6-flash-high`
-  попытался вызвать инструмент, требующий разрешения `command`, headless-режим авто-отклонил его, и
-  `response` вернулся ПУСТЫМ при `status: SUCCESS` и 12k output-токенов. Реальная причина видна
-  только в stderr, не в JSON. Вывод: (1) всегда проверять и stderr тоже, а не только
-  `status`; (2) пустой `response` при ненулевом `output_tokens` — признак авто-отклонённого
-  инструмента. При этом сам результат агент успел записать прямо в файл проекта — то есть
-  делегированный вызов может изменить рабочее дерево даже без `--dangerously-skip-permissions`.
+  `status: ERROR`, zero tokens spent. The recommendation in `orchestration.md` to use
+  `claude-sonnet-4-6 --effort medium` is incorrect, the flag should simply be omitted.
+- **Gemini models in `agy` behave agentically even on purely text-based tasks**: `gemini-3.6-flash-high`
+  attempted to invoke a tool requiring `command` permission; headless mode auto-rejected it, and `response`
+  returned EMPTY with `status: SUCCESS` and 12k output tokens. The actual reason is only visible in stderr,
+  not in JSON. Takeaways: (1) always check stderr as well, not just `status`; (2) an empty `response`
+  with non-zero `output_tokens` is a sign of an auto-rejected tool. At the same time, the agent had already
+  managed to write the result directly to a project file — meaning a delegated call can modify the working
+  tree even without `--dangerously-skip-permissions`.
 
-## КВОТА API — главное ограничение проекта
+## API QUOTA — the main project limitation
 
-Обнаружено 2026-08-06 на смоук-прогоне генерации (24 документа): ключ работает на **free tier**, и
-лимит там — **20 запросов в СУТКИ на модель** (`generate_content_free_tier_requests`,
-`quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier`, `quotaValue: 20`). Не в минуту.
+Discovered on 2026-08-06 during a generation smoke run (24 documents): the key operates on the **free tier**, and
+the limit there is **20 requests per DAY per model** (`generate_content_free_tier_requests`,
+`quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier`, `quotaValue: 20`). Not per minute.
 
-- Фактический результат прогона `--count 24`: создано **7** документов, **17** упали с 429
-  RESOURCE_EXHAUSTED. Дневная квота `gemini-3.6-flash` на 2026-08-06 исчерпана.
-- Квота считается **на модель**, поэтому у разных моделей независимые бюджеты.
-  `gemini-3.5-flash-lite` проверен живым вызовом — работает, квота есть.
-  `gemini-2.5-flash-lite` — 404, больше не доступен новым пользователям.
-- Ретрай по 429 в `generate_synthetic_data.py` бессмыслен при **дневной** квоте: backoff лишь
-  растягивает падение. Если остаёмся на free tier, 429 надо трактовать как «стоп на сегодня»,
-  а не как повод ретраить.
-- **Последствия для PLAN.md**: полный объём ~1000 документов на free tier недостижим в принципе
-  (это 50 суток при 20 запросах в день). Более того, `build_kg.py` тоже упрётся: LightRAG делает
-  несколько LLM-вызовов на КАЖДЫЙ чанк при извлечении сущностей и связей, так что даже ингестия
-  имеющихся 7 документов не помещается в 20 запросов.
-- Embedding-квота отдельная от генерации (метрика другая) — на `gemini-embedding-2` прогон
-  из 5 вызовов прошёл без ошибок.
+- Actual result of the `--count 24` run: **7** documents created, **17** failed with 429
+  RESOURCE_EXHAUSTED. The daily quota for `gemini-3.6-flash` on 2026-08-06 is exhausted.
+- The quota is calculated **per model**, so different models have independent budgets.
+  `gemini-3.5-flash-lite` verified with a live call — works, quota is available.
+  `gemini-2.5-flash-lite` — 404, no longer available to new users.
+- Retry on 429 in `generate_synthetic_data.py` is pointless with a **daily** quota: backoff only
+  stretches the failure. If we remain on the free tier, 429 should be treated as "stop for today",
+  rather than a reason to retry.
+- **Impact on PLAN.md**: the full volume of ~1000 documents is fundamentally unattainable on the free tier
+  (this would take 50 days at 20 requests per day). Moreover, `build_kg.py` will also hit a wall: LightRAG makes
+  several LLM calls for EACH chunk during entity and relation extraction, so even ingesting
+  the existing 7 documents does not fit into 20 requests.
+- The embedding quota is separate from generation (different metric) — a run of 5 calls on
+  `gemini-embedding-2` completed without errors.
 
-### Уточнение по квотам (важно): суточный лимит — только у топовых моделей
+### Quota clarification (important): daily limit is only for top-tier models
 
-- `gemini-3.6-flash`: **суточный** лимит, 20 запросов/день — лечится только сменой модели или биллингом.
-- `gemini-3.5-flash-lite`: **поминутный** — `GenerateRequestsPerMinutePerProjectPerModel-FreeTier`.
-- `gemini-embedding-2`: **поминутный** — `EmbedContentRequestsPerMinutePerUserPerProjectPerModel-FreeTier`,
-  заявленный лимит 100/мин, но 429 приходили и при троттлинге на 80/мин.
+- `gemini-3.6-flash`: **daily** limit, 20 requests/day — resolved only by switching models or billing.
+- `gemini-3.5-flash-lite`: **per-minute** — `GenerateRequestsPerMinutePerProjectPerModel-FreeTier`.
+- `gemini-embedding-2`: **per-minute** — `EmbedContentRequestsPerMinutePerUserPerProjectPerModel-FreeTier`,
+  stated limit is 100/min, but 429s were received even when throttling to 80/min.
 
-Поминутные лимиты лечатся ожиданием, поэтому в `build_kg.py` добавлен класс `RateLimiter`
-(скользящее окно 60 с) на ОБА пути вызовов: LLM (12/мин) и embedding (45/мин), плюс собственный
-ретрай по 429 с чтением `retryDelay` из тела ошибки. Семафор эту задачу не решает: он ограничивает
-одновременность, а не частоту.
+Per-minute limits are resolved by waiting, so the `RateLimiter` class (sliding window of 60s) has been
+added to `build_kg.py` for BOTH call paths: LLM (12/min) and embedding (45/min), plus a custom
+retry on 429 reading `retryDelay` from the error body. A semaphore does not solve this problem: it limits
+concurrency, not frequency.
 
-**Свой ретрай обязателен**: штатные `@retry` в биндингах LightRAG ловят
-`google.api_core.exceptions.ResourceExhausted`, а новый SDK бросает `google.genai.errors.ClientError` —
-декораторы её не видят. Одна необработанная 429 роняет ВЕСЬ документ в статус `failed`.
+**Custom retry is mandatory**: default `@retry` in LightRAG bindings catch
+`google.api_core.exceptions.ResourceExhausted`, while the new SDK throws `google.genai.errors.ClientError` —
+which decorators do not see. A single unhandled 429 drops the ENTIRE document to the `failed` status.
 
-**`--force` не годится для переингестии**: LightRAG отвергает повторную вставку тех же имён файлов
-с ошибкой `File name already exists. Original doc_id: ...`. Для чистой пересборки надо начинать с
-пустого `working_dir`, а не полагаться на `--force`.
+**`--force` is not suitable for re-ingestion**: LightRAG rejects re-inserting the same filenames
+with the error `File name already exists. Original doc_id: ...`. For a clean rebuild, you must start with
+an empty `working_dir`, rather than relying on `--force`.
 
-### Верификация графа: `scripts/verify_graph.py`
+### Graph verification: `scripts/verify_graph.py`
 
-Написан `gemini-3.1-pro-high` по файловому ТЗ (`orchestration/prompts/t4_verify_graph.md`), 957 строк,
-детерминированный, без LLM и без сети — гонять можно свободно. Проверяет: покрытие сущностей
-(нечёткое сопоставление по канону + алиасам), слипание омонимов, обратное расщепление алиасов,
-покрытие иерархии и её глубину, multi-hop достижимость, покрытие таймлайна, вклад каждого
-нарратора. Код возврата 1 при провале — годится как гейт.
+Written by `gemini-3.1-pro-high` according to the file-based task description (`orchestration/prompts/t4_verify_graph.md`), 957 lines,
+deterministic, no LLM and no network — can be run freely. Verifies: entity coverage
+(fuzzy matching by canonical name + aliases), merging of homonyms, reverse splitting of aliases,
+hierarchy coverage and depth, multi-hop reachability, timeline coverage, and narrator contributions.
+Exit code 1 on failure — suitable as a gate.
 
-**Первый прогон (на неполном графе, 4 документа из 24) уже поймал главный провал**: обе группы
-омонимов схлопнулись — станция и дредноут `Aurelia-Prime` слились в узел `Aurilia-Prime`, два
-разных корабля `Vanguard` — в `Vanguard-2`. Также 5 сущностей разъехались на несколько узлов
-(канон и алиас как отдельные узлы). Цифры покрытия предварительные, повторить после полной ингестии.
+**The first run (on an incomplete graph, 4 out of 24 documents) already caught the main failure**: both homonym
+groups collapsed — the station and the dreadnought `Aurelia-Prime` merged into a single `Aurilia-Prime` node, while
+two different `Vanguard` ships merged into `Vanguard-2`. In addition, 5 entities split into multiple nodes
+(canonical name and alias as separate nodes). Coverage numbers are preliminary, repeat after full ingestion.
 
-## Открытые вопросы / риски
+## Open questions / risks
 
-- Интерфейс запросов (встроенный `lightrag-server` с Web UI / MCP-обёртка / просто CLI) —
-  выбор отложен пользователем на потом, не начинать без явного запроса.
-- Полный объём генерации синтетики (~1000 документов) не запускать до прохождения верификации на
-  малой партии (~20-30 документов) — расход API-квоты пропорционален объёму.
-- Ингестия (`build_kg.py`) на реальном корпусе ещё **не прогонялась** — связка `EmbeddingFunc` +
-  `gemini_embed.func` + `ainsert` проверена только чтением кода. Запускать её сейчас бессмысленно:
-  дневная квота LLM исчерпана (см. раздел про квоту), прогон упадёт на извлечении сущностей.
-  Это ближайший непройденный шаг верификации — после решения по квоте.
-- **Решение по квоте принято пользователем 2026-08-06: генеративная LLM переведена на
-  `gemini-3.5-flash-lite`** (у неё отдельный дневной бюджет). Изменены `LLM_MODEL` в
-  `build_kg.py` и `MODEL_NAME` в `generate_synthetic_data.py`.
-  **Embedding-модель НЕ менялась**: `gemini-embedding-2` — специальная embedding-модель со своей
-  отдельной квотой, остаётся как есть (3072 измерения).
-- Побочный эффект: первые 7 документов корпуса сгенерированы `gemini-3.6-flash`, остальные —
-  lite-моделью. Для целей проекта это скорее плюс (разнобой стиля усиливает разнородность
-  источников), но помнить об этом стоит.
-- Открыто: качество извлечения сущностей у lite-модели ниже — если граф выйдет разреженным,
-  первый подозреваемый именно она, а не код `build_kg.py`.
-- `orchestration.md` местами разошёлся с реальностью (`--effort` для `claude-sonnet-4-6`, вывод про
-  кэш) — правки перечислены выше в «Подтверждённых фактах», сам документ ещё не обновлён.
+- Query interface (built-in `lightrag-server` with Web UI / MCP wrapper / simple CLI) —
+  the choice is deferred by the user for later; do not start without an explicit request.
+- Do not run the full volume of synthetic generation (~1000 documents) before passing verification on a
+  small batch (~20-30 documents) — API quota consumption is proportional to the volume.
+- Ingestion (`build_kg.py`) has not yet **been run** on the real corpus — the combination of `EmbeddingFunc` +
+  `gemini_embed.func` + `ainsert` has only been verified by code review. Running it now is pointless:
+  the daily LLM quota is exhausted (see the quota section), the run will crash on entity extraction.
+  This is the next pending verification step — after a decision on the quota is made.
+- **Quota decision made by the user on 2026-08-06: generative LLM switched to
+  `gemini-3.5-flash-lite`** (it has a separate daily budget). `LLM_MODEL` in
+  `build_kg.py` and `MODEL_NAME` in `generate_synthetic_data.py` have been changed.
+  **Embedding model has NOT been changed**: `gemini-embedding-2` — a special embedding model with its own
+  separate quota, remains as is (3072 dimensions).
+- Side effect: the first 7 documents of the corpus were generated by `gemini-3.6-flash`, the rest —
+  by the lite model. For the project goals, this is rather a plus (stylistic variation enhances the heterogeneity
+  of the sources), but it is worth keeping in mind.
+- Open: the quality of entity extraction with the lite model is lower — if the graph ends up sparse,
+  the first suspect is the model, not the `build_kg.py` code.
+- `orchestration.md` is out of sync with reality in some places (`--effort` for `claude-sonnet-4-6`, conclusion about
+  cache) — the fixes are listed above in "Verified technical facts", but the document itself has not yet been updated.
 
-## Лог сессий
+## Session log
 
-- **2026-08-06**: обсудили и проверили `agy` CLI как исполнителя для делегирования рутины
-  (headless-вызовы, модели, параметры) → зафиксировано в `orchestration.md`. Создан
-  project-level `CLAUDE.md` со ссылками на `PLAN.md`/`orchestration.md` и правилами ведения этого
-  файла. Сама разработка проекта (скрипты, генерация, ингестия) ещё не начиналась.
+- **2026-08-06**: discussed and verified `agy` CLI as an executor for routine delegation
+  (headless calls, models, options) → captured in `orchestration.md`. Created
+  project-level `CLAUDE.md` with links to `PLAN.md`/`orchestration.md` and rules for maintaining this
+  file. The actual development of the project (scripts, generation, ingestion) has not yet begun.

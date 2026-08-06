@@ -1,38 +1,38 @@
-# graphrag-project — инструкции для Claude Code
+# graphrag-project — Instructions for Claude Code
 
-## Источники истины
+## Sources of Truth
 
-- **`PLAN.md`** — план реализации. Следовать его шагам по порядку. В частности: не
-  масштабировать генерацию синтетических данных до полного объёма (~1000 документов), пока
-  раздел "Верификация" не пройден на маленькой партии (~20-30 документов).
-- **`orchestration.md`** — правила делегирования рутины во внешний `agy` CLI (какая модель для
-  какой задачи, какие параметры, какие ограничения). Использовать при любом делегировании
-  подзадач через `agy`, не изобретать параметры заново.
-- **`MEMORY.md`** — текущий рабочий контекст проекта, см. ниже.
+- **`PLAN.md`** — implementation plan. Follow its steps in order. In particular: do not
+  scale synthetic data generation to the full volume (~1000 documents) until the
+  "Verification" section has been passed on a small batch (~20-30 documents).
+- **`orchestration.md`** — rules for delegating routine tasks to the external `agy` CLI (which model
+  for which task, which parameters, which limitations). Use for any delegation of
+  subtasks via `agy`; do not reinvent parameters.
+- **`MEMORY.md`** — current working context of the project, see below.
 
 ## Context management: `MEMORY.md`
 
-`MEMORY.md` — живой файл состояния проекта, отдельный от `PLAN.md`. `PLAN.md` — это план,
-написанный один раз и не переписываемый по ходу работы; `MEMORY.md` — то, что реально произошло
-и что реально верно прямо сейчас. При работе над проектом:
+`MEMORY.md` is a living project state file, separate from `PLAN.md`. `PLAN.md` is a plan
+written once and not rewritten as work progresses; `MEMORY.md` is what has actually occurred
+and what is actually true right now. When working on the project:
 
-1. **В начале работы** — прочитать `MEMORY.md` перед тем, как опираться на `PLAN.md` в отрыве от
-   контекста: `MEMORY.md` может содержать отклонения от плана, найденные эмпирически факты или
-   заблокированные шаги, которых в `PLAN.md` ещё нет.
-2. **По ходу работы** — активно писать в `MEMORY.md`, не откладывая на конец сессии, когда:
-   - шаг из `PLAN.md` выполнен, или выполнен не так, как в нём написано;
-   - принято решение, которого нет в `PLAN.md` (например, эмпирически найденное значение
-     `embedding_dim`, замена модели, выбор интерфейса запросов);
-   - обнаружено что-то неожиданное (баг, особенность API, квота, заблокированный путь);
-   - сделан делегированный вызов `agy` (см. `orchestration.md`), результат которого влияет на
-     следующие шаги.
-3. **Формат** — факты, а не хронологический журнал: устаревшую запись обновлять/удалять, а не
-   копить рядом с ней новую. `MEMORY.md` целиком загружается в контекст каждой сессии — держать
-   его компактным.
+1. **At the start of work** — read `MEMORY.md` before relying on `PLAN.md` out of
+   context: `MEMORY.md` may contain deviations from the plan, empirically found facts, or
+   blocked steps that are not yet in `PLAN.md`.
+2. **As work progresses** — actively write to `MEMORY.md`, without postponing to the end of the session, when:
+   - a step from `PLAN.md` is completed, or is completed differently than written in it;
+   - a decision is made that is not in `PLAN.md` (for example, an empirically found
+     `embedding_dim` value, a model replacement, a query interface selection);
+   - something unexpected is discovered (a bug, an API quirk, a quota, a blocked path);
+   - a delegated `agy` call is made (see `orchestration.md`), the result of which affects
+     subsequent steps.
+3. **Format** — facts, not a chronological log: update/delete outdated entries instead of
+   accumulating new ones next to them. `MEMORY.md` is loaded in its entirety into the context of each session — keep
+   it compact.
 
-## Делегирование через agy
+## Delegation via agy
 
-Перед вызовом `agy` — свериться с `orchestration.md` (выбор модели по классу задачи, флаги
-`--effort`/`--output-format json`/`--add-dir`/`--conversation`, ограничение на
-`--dangerously-skip-permissions` только по явному согласию на конкретный прогон). Результат
-делегированного вызова, если он влияет на дальнейшие шаги проекта, фиксировать в `MEMORY.md`.
+Before calling `agy` — check `orchestration.md` (model selection by task class, flags
+`--effort`/`--output-format json`/`--add-dir`/`--conversation`, restriction on
+`--dangerously-skip-permissions` only by explicit consent for a specific run). If the
+result of a delegated call affects subsequent steps of the project, record it in `MEMORY.md`.
