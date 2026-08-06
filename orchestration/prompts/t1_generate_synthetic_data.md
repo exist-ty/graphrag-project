@@ -1,32 +1,32 @@
-## Общий контекст проекта (проверено эмпирически, НЕ додумывай)
+## General Project Context (verified empirically, DO NOT extrapolate)
 
-Проект: GraphRAG на LightRAG + Google AI Studio (Gemini). Корень: `D:\Projects\graphrag-project`.
-Скрипты запускаются из корня проекта как `python scripts/<name>.py`. ОС — Windows, но код должен
-быть кроссплатформенным (pathlib, никаких хардкоженных обратных слэшей).
+Project: GraphRAG on LightRAG + Google AI Studio (Gemini). Root: `D:\Projects\graphrag-project`.
+Scripts are run from the project root as `python scripts/<name>.py`. OS is Windows, but the code must
+be cross-platform (pathlib, no hardcoded backslashes).
 
-Окружение (уже установлено, ничего добавлять нельзя):
-- Python 3.12 venv в `.venv/`
+Environment (already installed, nothing can be added):
+- Python 3.12 venv in `.venv/`
 - `lightrag-hku` 1.5.5, `google-genai` 2.16.0, `python-dotenv` 1.2.2, numpy
-- Внешних зависимостей сверх этого списка НЕ использовать (никаких rich, click, tenacity;
-  argparse вместо click, свой backoff вместо tenacity).
+- DO NOT use external dependencies beyond this list (no rich, click, tenacity;
+  argparse instead of click, custom backoff instead of tenacity).
 
-Секреты: `.env` в корне проекта содержит `GEMINI_API_KEY=...`. Загружать через
-`dotenv.load_dotenv()`. Ключ никогда не логировать и не хардкодить.
+Secrets: `.env` in the project root contains `GEMINI_API_KEY=...`. Load via
+`dotenv.load_dotenv()`. Never log or hardcode the key.
 
-Модели (id подтверждены живыми вызовами API на этом аккаунте):
+Models (IDs verified by live API calls on this account):
 - LLM: `gemini-3.6-flash`
-- Embedding: `gemini-embedding-2`, нативная размерность 3072.
+- Embedding: `gemini-embedding-2`, native dimension 3072.
 
-Тема синтетики: Aurelia Sector — кибер-феодальная межзвёздная империя (дома, мегакорпорации,
-колонии, флоты). Данные специально проектируются так, чтобы нагружать сложные места GraphRAG:
-алиасы, омонимы, противоречия между источниками, изменение фактов во времени, вложенные иерархии,
-multi-hop связи, разреженные узлы.
+Synthetic data topic: Aurelia Sector — a cyber-feudal interstellar empire (houses, megacorporations,
+colonies, fleets). The data is specifically designed to stress complex aspects of GraphRAG:
+aliases, homonyms, contradictions between sources, changes of facts over time, nested hierarchies,
+multi-hop relationships, sparse nodes.
 
-## Проверенный API `google-genai` 2.16.0 (прочитан интроспекцией установленного пакета)
+## Verified `google-genai` 2.16.0 API (read from introspection of the installed package)
 
-Это НОВЫЙ SDK. Пакета `google.generativeai` (старый SDK) в окружении НЕТ — импорт из него сразу
-уронит скрипт. Не существует ни `genai.configure()`, ни `genai.AsyncClient()`, ни
-`genai.exceptions.RateLimitError`. Используй ровно это:
+This is the NEW SDK. The `google.generativeai` package (old SDK) is NOT present in the environment — importing from it will
+immediately crash the script. Neither `genai.configure()`, nor `genai.AsyncClient()`, nor
+`genai.exceptions.RateLimitError` exists. Use exactly this:
 
 ```python
 from google import genai
@@ -46,84 +46,84 @@ response = await client.aio.models.generate_content(
 text: str = response.text
 ```
 
-Обработка ошибок: иерархия исключений — `errors.APIError` (базовый, есть поля `.code` и
-`.message`), от него наследуются `errors.ClientError` (4xx, сюда попадает 429) и
-`errors.ServerError` (5xx). Ретраить нужно `errors.ServerError` целиком и `errors.ClientError`
-только когда `exc.code == 429`; остальные 4xx — это ошибка запроса, ретрай бессмысленен, такой
-документ надо считать упавшим и идти дальше.
+Error handling: the exception hierarchy is `errors.APIError` (base, has `.code` and
+`.message` fields), from which `errors.ClientError` (4xx, 429 falls here) and
+`errors.ServerError` (5xx) inherit. You should retry `errors.ServerError` entirely and `errors.ClientError`
+only when `exc.code == 429`; other 4xx errors indicate a bad request, retrying is pointless, such
+a document should be considered failed and you should proceed.
 
-## Требования к ответу
+## Response Requirements
 
-- Верни РОВНО ОДИН блок ```python с полным содержимым файла. Никакого текста до или после блока.
-- Файл должен запускаться как есть, без плейсхолдеров и TODO.
-- Докстринги и комментарии — на русском, код/идентификаторы — на английском.
-- Обязательно: аннотации типов, `if __name__ == "__main__":`, обработка ошибок API
-  (429/5xx → экспоненциальный backoff на asyncio.sleep, своя реализация).
-- Не изобретай API: используй ровно те сигнатуры, что даны ниже.
+- Return EXACTLY ONE ```python block with the complete file contents. No text before or after the block.
+- The file must run as is, without placeholders or TODOs.
+- Docstrings and comments in English, code/identifiers in English.
+- Mandatory: type annotations, `if __name__ == "__main__":`, API error handling
+  (429/5xx → exponential backoff with asyncio.sleep, custom implementation).
+- Do not invent API: use exactly the signatures given below.
 
-## Задача: написать `scripts/generate_synthetic_data.py`
+## Task: write `scripts/generate_synthetic_data.py`
 
-Генератор синтетического корпуса в два прохода, напрямую через `google-genai` SDK.
+A two-pass synthetic corpus generator, using the `google-genai` SDK directly.
 
-### Проход 1 — seed (ground truth)
+### Pass 1 — seed (ground truth)
 
-Один вызов LLM генерирует единый источник истины и сохраняет его в `data/ground_truth.json`:
-таймлайн событий (каждое с `event_id`, годом, участниками), реестр сущностей — дома,
-мегакорпорации, персоны (с каноническим именем И списком алиасов/титулов/позывных), станции и
-корабли (среди них намеренно должны быть омонимы: разные объекты с одинаковым или почти
-одинаковым названием), иерархия владения/подчинения (вложенная, минимум 3 уровня).
+A single LLM call generates a single source of truth and saves it to `data/ground_truth.json`:
+a timeline of events (each with `event_id`, year, participants), an entity registry — houses,
+megacorporations, persons (with a canonical name AND a list of aliases/titles/callsigns), stations and
+ships (there must intentionally be homonyms: different objects with the same or almost
+the same name), and a hierarchy of ownership/subordination (nested, at least 3 levels).
 
-Использовать структурированный вывод:
+Use structured output:
 `types.GenerateContentConfig(response_mime_type="application/json", response_json_schema=SCHEMA)`.
-Схему объявить в коде как явный dict — она же документирует формат.
+Declare the schema in the code as an explicit dict — it also serves to document the format.
 
-Если `data/ground_truth.json` уже существует — переиспользовать его и НЕ тратить квоту, пока не
-передан флаг `--regenerate-seed`.
+If `data/ground_truth.json` already exists — reuse it and DO NOT spend quota unless the
+`--regenerate-seed` flag is passed.
 
-### Проход 2 — divergent (документы)
+### Pass 2 — divergent (documents)
 
-По элементам таймлайна/реестра генерируются отдельные `.md` документы от РАЗНЫХ предвзятых
-нарраторов. Каждый нарратор ссылается на один и тот же ground truth, но искажает его по-своему —
-именно так возникают контролируемые противоречия, а не случайный шум. Типы нарраторов и доли:
+Separate `.md` documents are generated from timeline/registry elements by DIFFERENT biased
+narrators. Each narrator references the same ground truth but distorts it in their own way —
+this is how controlled contradictions are created, rather than random noise. Narrator types and shares:
 
-- `encyclopedia` — официальная имперская энциклопедия, 30%
-- `dossier` — шпионское досье, 25%
-- `propaganda` — новости/пропаганда враждующих сторон, 25%
-- `log` — судовые/станционные журналы и указы, 20%
+- `encyclopedia` — official imperial encyclopedia, 30%
+- `dossier` — spy dossier, 25%
+- `propaganda` — news/propaganda of opposing sides, 25%
+- `log` — ship/station logs and decrees, 20%
 
-Каждый документ — отдельный файл в `data/generated/` с YAML-frontmatter, чтобы верификацию можно
-было проследить назад к истине: `doc_id`, `narrator`, `subject_entity_ids` (список),
-`source_event_ids` (список), `generated_at`. Имя файла детерминированное и сортируемое, например
+Each document is a separate file in `data/generated/` with YAML-frontmatter so that verification can
+be traced back to the truth: `doc_id`, `narrator`, `subject_entity_ids` (list),
+`source_event_ids` (list), `generated_at`. The file name is deterministic and sortable, for example
 `0007_dossier_kesh-station.md`.
 
 ### CLI (argparse)
 
-- `--count N` (по умолчанию 24 — это смоук-тест; полный объём ~1000 запускается явно)
-- `--concurrency N` (по умолчанию 4) — asyncio.Semaphore
-- `--out-dir` (по умолчанию `data/generated`), `--ground-truth` (по умолчанию `data/ground_truth.json`)
-- `--seed-only` — только проход 1
-- `--regenerate-seed` — перегенерировать ground truth, перезаписав существующий
-- `--overwrite` — перезаписывать уже существующие документы (по умолчанию они пропускаются)
+- `--count N` (defaults to 24 — this is a smoke test; the full volume ~1000 is run explicitly)
+- `--concurrency N` (defaults to 4) — asyncio.Semaphore
+- `--out-dir` (defaults to `data/generated`), `--ground-truth` (defaults to `data/ground_truth.json`)
+- `--seed-only` — pass 1 only
+- `--regenerate-seed` — regenerate ground truth, overwriting the existing one
+- `--overwrite` — overwrite already existing documents (by default they are skipped)
 
-### Что критично
+### What is critical
 
-- Батч не должен падать целиком из-за одного отказа API: сбойный документ логируется и
-  пропускается, в конце печатается сводка (создано / пропущено / упало).
-- Промпты к LLM должны передавать нарратору релевантный СРЕЗ ground truth (конкретные события и
-  сущности), а не весь JSON целиком — иначе контекст раздувается и модель теряет фокус.
-- **Экономия квоты**: план документов (индекс → нарратор → какие сущности и события он освещает)
-  строится ДО обращения к API, и проверка «файл уже существует» делается ТОЖЕ до вызова API.
-  Вызывать LLM, а потом обнаруживать, что файл уже на диске, — недопустимо.
-- **Frontmatter пишет код, а не модель.** У LLM запрашивается только тело документа в Markdown;
-  YAML-frontmatter приклеивается программно из уже известных плану значений. Явно потребуй от
-  модели не добавлять свой frontmatter и, на всякий случай, срежь ведущий `---`-блок из ответа,
-  если он всё же появился, — иначе в файле будет два frontmatter и парсинг сломается.
-- `doc_id` — детерминированный (например, из индекса и нарратора), НЕ случайный UUID: при
-  повторном запуске с `--overwrite` тот же документ должен получить тот же id.
-- Доли нарраторов из таблицы выше — это РАСКЛАДКА фиксированного плана (при `--count 24` →
-  примерно 7/6/6/5), а не независимый случайный выбор на каждый документ. Для воспроизводимости
-  используй `random.Random(seed)` с фиксированным seed при выборе сущностей/событий.
-- Имя файла — из безопасного slug (только `[a-z0-9-]`), длина ограничена; сырой `entity_id`
-  в имя файла не подставлять.
-- В конце печатать путь к каталогу и **фактическое** распределение по нарраторам (посчитанное по
-  реально созданным файлам), а не ожидаемые проценты из константы.
+- The batch must not fail entirely due to a single API failure: the failed document is logged and
+  skipped, and a summary is printed at the end (created / skipped / failed).
+- Prompts to the LLM must pass a relevant slice of the ground truth (specific events and
+  entities) to the narrator, rather than the entire JSON — otherwise the context gets bloated and the model loses focus.
+- **Quota savings**: the document plan (index → narrator → which entities and events it covers)
+  is built BEFORE calling the API, and the "file already exists" check is ALSO done before the API call.
+  Calling the LLM and then finding out the file is already on disk is unacceptable.
+- **Frontmatter is written by code, not the model.** Only the markdown document body is requested from the LLM;
+  YAML-frontmatter is attached programmatically from values already known to the plan. Explicitly instruct the
+  model not to add its own frontmatter, and just in case, strip the leading `---` block from the response
+  if it still appears — otherwise there will be two frontmatters in the file and parsing will break.
+- `doc_id` — deterministic (e.g., from index and narrator), NOT a random UUID: on
+  subsequent runs with `--overwrite`, the same document must get the same id.
+- The narrator shares from the table above are a layout of a fixed plan (for `--count 24` →
+  roughly 7/6/6/5), not an independent random choice for each document. For reproducibility,
+  use `random.Random(seed)` with a fixed seed when selecting entities/events.
+- The file name must be made from a safe slug (only `[a-z0-9-]`), with limited length; do not
+  insert raw `entity_id` directly into the file name.
+- At the end, print the path to the directory and the **actual** distribution by narrator (calculated from
+  actually created files), not the expected percentages from the constant.

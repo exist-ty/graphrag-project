@@ -1,130 +1,130 @@
-# Задача для сильной модели с большим контекстом
+# Task for a strong model with large context
 
-Ты пишешь один Python-файл: `scripts/verify_graph.py` — автоматическую верификацию построенного
-графа знаний LightRAG против «ground truth», из которого порождался корпус. Ниже — ВСЁ, что нужно:
-реальные данные проекта, реальные форматы хранилищ (снятые интроспекцией, не по памяти) и реальный
-код соседнего модуля. Не додумывай API — всё, что тебе нужно знать, есть в этом промпте.
+You are writing a single Python file: `scripts/verify_graph.py` — automated verification of the constructed
+LightRAG knowledge graph against the "ground truth" from which the corpus was generated. Below is EVERYTHING you need:
+real project data, real storage formats (retrieved via introspection, not memory), and the real
+code of the adjacent module. Do not invent APIs — everything you need to know is in this prompt.
 
-## Требования к ответу
+## Response Requirements
 
-- Верни РОВНО ОДИН блок ```python с полным содержимым файла. Никакого текста до или после блока.
-- Никаких файловых операций и вызовов инструментов — просто верни код текстом.
-- Файл должен запускаться как есть. Зависимости: только stdlib + numpy + networkx (networkx уже
-  стоит как зависимость lightrag). НЕ используй LLM и НЕ обращайся к сети: верификация должна быть
-  детерминированной, бесплатной и мгновенной.
-- Докстринги и комментарии — на русском, код/идентификаторы — на английском. Аннотации типов.
+- Return EXACTLY ONE ```python block with the complete file contents. No text before or after the block.
+- No file operations or tool calls — simply return the code as text.
+- The file must run as is. Dependencies: stdlib + numpy + networkx only (networkx is already
+  installed as a dependency of lightrag). DO NOT use LLMs and DO NOT access the network: verification must be
+  deterministic, free, and instant.
+- Docstrings and comments in English, code/identifiers in English. Type annotations.
 
-## Контекст проекта
+## Project Context
 
-GraphRAG на LightRAG + Gemini. Синтетический корпус про кибер-феодальную империю Aurelia Sector
-сгенерирован в два прохода: сначала единый «ground truth» (реестр сущностей + таймлайн), затем
-24 документа от РАЗНЫХ предвзятых нарраторов (encyclopedia / dossier / propaganda / log), которые
-намеренно искажают одни и те же факты. Корпус специально спроектирован под тяжёлые места GraphRAG:
-алиасы, ОМОНИМЫ, противоречия между источниками, изменение фактов во времени, вложенные иерархии,
-multi-hop связи.
+GraphRAG on LightRAG + Gemini. The synthetic corpus about the cyber-feudal Aurelia Sector empire
+has been generated in two passes: first, a single "ground truth" (entity registry + timeline), then
+24 documents from DIFFERENT biased narrators (encyclopedia / dossier / propaganda / log) that
+intentionally distort the same facts. The corpus is specifically designed for the challenging parts of GraphRAG:
+aliases, HOMONYMS, contradictions between sources, change of facts over time, nested hierarchies,
+multi-hop relationships.
 
-Смысл задачи: понять, **что из заложенной сложности граф реально удержал, а что потерял**.
-Это шаг верификации, который в плане проекта описан как ручная сверка глазами — его надо
-автоматизировать.
+Goal of the task: to understand **which parts of the embedded complexity the graph actually retained, and what was lost**.
+This is a verification step that was described in the project plan as manual visual verification — it needs to be
+automated.
 
-## Данные, которые надо прочитать самостоятельно
+## Data that needs to be read directly
 
-Рабочая директория проекта тебе доступна — читай файлы напрямую, они реальные:
+The project working directory is accessible to you — read the files directly, they are real:
 
-- `data/ground_truth.json` — полный реестр сущностей и таймлайн (это и есть эталон)
-- `rag_storage/graph_chunk_entity_relation.graphml` — построенный граф
-- `data/generated/*.md` — 24 документа корпуса с frontmatter
-- `scripts/build_kg.py` — соседний модуль, для стиля и понимания пайплайна
-- `rag_storage/kv_store_full_entities.json`, `kv_store_doc_status.json` — вспомогательные хранилища
+- `data/ground_truth.json` — complete entity registry and timeline (this is the ground truth)
+- `rag_storage/graph_chunk_entity_relation.graphml` — constructed graph
+- `data/generated/*.md` — 24 corpus documents with frontmatter
+- `scripts/build_kg.py` — adjacent module, for style and pipeline understanding
+- `rag_storage/kv_store_full_entities.json`, `kv_store_doc_status.json` — auxiliary storages
 
-Прочитай их прежде, чем проектировать метрики: структура ground truth и реальные имена узлов
-графа определяют, каким должно быть сопоставление.
+Read them before designing metrics: the ground truth structure and real node names in the
+graph determine how mapping should be done.
 
-## Формат графа: `rag_storage/graph_chunk_entity_relation.graphml`
+## Graph Format: `rag_storage/graph_chunk_entity_relation.graphml`
 
-Читается через `networkx.read_graphml(path)`. Это НЕориентированный мультиграф сущностей.
-Проверенная структура (снята с реального файла):
+Read via `networkx.read_graphml(path)`. This is an undirected multigraph of entities.
+Verified structure (extracted from a real file):
 
-- **ID узла — это сама строка-имя сущности**, например `id="Great Imperial Hegemony"`.
-- Атрибуты узла: `entity_id` (дублирует имя), `entity_type` (например `organization`, `person`,
-  `category`), `description`, `source_id` (id чанка вида
-  `doc-<hash>-chunk-000`), `file_path` (имя исходного .md), `created_at`, `truncate`.
-- Атрибуты ребра: `weight` (float), `description`, `keywords` (через запятую, например
+- **The node ID is the entity name string itself**, for example `id="Great Imperial Hegemony"`.
+- Node attributes: `entity_id` (duplicates the name), `entity_type` (e.g., `organization`, `person`,
+  `category`), `description`, `source_id` (chunk ID of the form
+  `doc-<hash>-chunk-000`), `file_path` (source .md file name), `created_at`, `truncate`.
+- Edge attributes: `weight` (float), `description`, `keywords` (comma-separated, e.g.,
   `blesses,rules`), `source_id`, `file_path`, `created_at`, `truncate`.
 
-Текущий масштаб для ориентира: 74 узла, 87 рёбер на 24 документах.
+Current scale for reference: 74 nodes, 87 edges for 24 documents.
 
-**Важно**: имена в графе НЕ совпадают с каноническими именами из ground truth дословно. Уже видно
-в реальных данных: в ground truth `Empress Cassandria Aurelius`, в графе `Cassandra Aurelius`;
-в ground truth `Aurelia-Prime`, в графе встречается `Aurilia-Prime`. То есть сопоставление должно
-быть устойчивым к вариациям написания, а не строгим равенством.
+**Important**: names in the graph DO NOT match the canonical names from the ground truth word-for-word. We can already see
+in the real data: in the ground truth it's `Empress Cassandria Aurelius`, in the graph it is `Cassandra Aurelius`;
+in the ground truth it is `Aurelia-Prime`, in the graph `Aurilia-Prime` appears. This means mapping must
+be robust to spelling variations rather than requiring strict equality.
 
-## Другие файлы хранилища (могут пригодиться)
+## Other Storage Files (might be useful)
 
-- `rag_storage/kv_store_full_entities.json` — словарь `doc-<hash>` → `{"entity_names": [...], ...}`
-- `rag_storage/kv_store_doc_status.json` — статусы документов, поле `status` (`processed` и т.п.)
+- `rag_storage/kv_store_full_entities.json` — dictionary `doc-<hash>` → `{"entity_names": [...], ...}`
+- `rag_storage/kv_store_doc_status.json` — document statuses, field `status` (`processed`, etc.)
 - `rag_storage/kv_store_full_relations.json`, `kv_store_text_chunks.json`, `vdb_*.json`
 
-## Пример сгенерированного документа
+## Example of a Generated Document
 
-Возьми любой из `data/generated/*.md`, например `0020_dossier_vanguard.md`.
+Take any file from `data/generated/*.md`, e.g., `0020_dossier_vanguard.md`.
 
-Frontmatter каждого документа содержит `doc_id`, `narrator`, `subject_entity_ids` (id сущностей из
-ground truth), `source_event_ids`. То есть **связь документа с ground truth прослеживается точно**,
-и этим стоит воспользоваться.
+The frontmatter of each document contains `doc_id`, `narrator`, `subject_entity_ids` (entity IDs from the
+ground truth), and `source_event_ids`. This means **the connection between the document and ground truth can be tracked precisely**,
+and you should take advantage of this.
 
-## Соседний модуль
+## Adjacent Module
 
-`scripts/build_kg.py` — прочитай его для стиля кода и понимания пайплайна.
+`scripts/build_kg.py` — read it for code style and pipeline understanding.
 
-## Что именно должен проверять `verify_graph.py`
+## What exactly `verify_graph.py` should check
 
-Спроектируй метрики сам, но обязательно покрой следующее — это те провалы, ради обнаружения
-которых корпус и строился:
+Design the metrics yourself, but make sure to cover the following — these are the failures that the
+corpus was built to detect:
 
-1. **Покрытие сущностей.** Сколько сущностей ground truth (домов, корпораций, персон, станций и
-   кораблей) вообще нашли отражение в графе. Сопоставление — по каноническому имени И по всем
-   алиасам/титулам/позывным, с устойчивостью к вариациям написания (нормализация регистра и
-   пунктуации + нечёткое сравнение через `difflib.SequenceMatcher`, порог выбери и вынеси в
-   константу). Отдельно перечисли **не найденные** сущности — это самое ценное в отчёте.
+1. **Entity coverage.** How many ground truth entities (houses, corporations, persons, stations, and
+   ships) actually found reflection in the graph. Matching must be by canonical name AND by all
+   aliases/titles/callsigns, with resilience to spelling variations (normalization of case and
+   punctuation + fuzzy matching via `difflib.SequenceMatcher`; choose a threshold and define it as a
+   constant). List **not found** entities separately — this is the most valuable part of the report.
 
-2. **Слипание омонимов — главная проверка.** В ground truth намеренно есть разные объекты с
-   одинаковым именем (два разных `Vanguard`, два разных `Aurelia-Prime`, помечены
-   `is_homonym_risk`). Классический провал GraphRAG — схлопнуть их в ОДИН узел. Определи для каждой
-   омонимичной группы, представлена ли она в графе одним узлом (слиплись — плохо) или несколькими
-   различимыми (хорошо), и покажи это явно.
+2. **Homonym merging — the main check.** The ground truth intentionally contains different objects with the
+   same name (two different `Vanguard`s, two different `Aurelia-Prime`s, marked with
+   `is_homonym_risk`). A classic GraphRAG failure is collapsing them into a SINGLE node. Determine for each
+   homonym group whether it is represented in the graph by a single node (merged — bad) or multiple
+   distinguishable ones (good), and show this explicitly.
 
-3. **Разрешение алиасов наоборот.** Обратная беда: одна и та же сущность разъехалась на НЕСКОЛЬКО
-   узлов графа (канон + алиас как отдельные узлы, например `Cassandra Aurelius` и `Crown Prime`).
-   Найди такие расщепления.
+3. **Aliases resolution in reverse.** The opposite issue: the same entity split into MULTIPLE
+   graph nodes (canonical + alias as separate nodes, e.g., `Cassandra Aurelius` and `Crown Prime`).
+   Find such splits.
 
-4. **Покрытие связей и иерархии.** Иерархия ground truth (`hierarchy`: `parent_id` → `child_id`,
-   с полем `level`) — проверь, доходят ли эти связи до графа: есть ли ребро (прямое или путь)
-   между узлами, соответствующими родителю и ребёнку. Отдельно посчитай, сколько уровней иерархии
-   реально прослеживается.
+4. **Relationships and hierarchy coverage.** Ground truth hierarchy (`hierarchy`: `parent_id` → `child_id`,
+   with a `level` field) — check if these relationships reach the graph: is there an edge (direct or path)
+   between the nodes corresponding to parent and child. Separately calculate how many levels of the hierarchy
+   are actually tracked.
 
-5. **Multi-hop связность.** Для пар сущностей, связанных в ground truth через промежуточное звено,
-   проверь достижимость в графе и длину кратчайшего пути. Разреженные/изолированные узлы —
-   отдельным списком.
+5. **Multi-hop connectivity.** For pairs of entities connected in the ground truth via an intermediate link,
+   verify reachability in the graph and the shortest path length. List sparse/isolated nodes in a
+   separate list.
 
-6. **Покрытие событий таймлайна.** Для каждого события ground truth — упоминается ли оно в графе
-   (по участникам и ключевым словам рёбер).
+6. **Timeline events coverage.** For each ground truth event — whether it is mentioned in the graph
+   (by participants and edge keywords).
 
-7. **Вклад нарраторов.** Через атрибут `file_path` узлов/рёбер посчитай, сколько узлов и рёбер дал
-   каждый тип нарратора (encyclopedia / dossier / propaganda / log). Если какой-то тип почти
-   ничего не дал — это сигнал, что его стиль плохо переваривается извлечением сущностей.
+7. **Narrators' contribution.** Using the `file_path` attribute of nodes/edges, calculate how many nodes and edges each
+   narrator type contributed (encyclopedia / dossier / propaganda / log). If some type contributed almost
+   nothing — this is a sign that its style is poorly processed by entity extraction.
 
-## CLI и вывод
+### CLI and Output
 
-- argparse: `--working-dir` (по умолчанию `rag_storage`), `--ground-truth` (по умолчанию
-  `data/ground_truth.json`), `--docs-dir` (по умолчанию `data/generated`),
-  `--json <path>` (выгрузить полный отчёт машиночитаемо), `--fuzzy-threshold`,
-  `--verbose` (печатать все совпадения, а не только проблемы).
-- В stdout — человекочитаемый отчёт по секциям, с итоговой сводкой в начале или конце:
-  проценты покрытия и явный список того, что потеряно.
-- Понятная ошибка, если графа нет: подсказать сначала запустить `python scripts/build_kg.py`.
-- Код возврата: 0 если все проверки прошли пороги, 1 если есть провалы — чтобы скрипт годился
-  как гейт в автоматике.
+- argparse: `--working-dir` (defaults to `rag_storage`), `--ground-truth` (defaults to
+  `data/ground_truth.json`), `--docs-dir` (defaults to `data/generated`),
+  `--json <path>` (export the complete report in a machine-readable format), `--fuzzy-threshold`,
+  `--verbose` (print all matches rather than just problems).
+- To stdout — a human-readable report by section, with a summary at the beginning or end:
+  coverage percentages and an explicit list of what was lost.
+- Clear error if the graph is missing: suggest running `python scripts/build_kg.py` first.
+- Return code: 0 if all checks pass their thresholds, 1 if there are failures — so that the script can be used
+  as a gate in automation.
 
-Отчёт должен быть таким, чтобы по нему можно было ПРИНЯТЬ РЕШЕНИЕ: масштабировать генерацию до
-полного объёма или сначала чинить извлечение. Не просто «покрытие 62%», а что именно потеряно.
+The report must be detailed enough to make a DECISION: scale up generation to
+the full volume or fix extraction first. Not just "coverage 62%", but exactly what was lost.
