@@ -96,6 +96,16 @@ it, a model writes confidently against the wrong package version. Introspect wha
 known traps into the spec, and state cross-task contracts — shared function names and signatures —
 yourself rather than letting two agents agree on them independently.
 
+## Artifacts go to files; replies carry only what needs judging
+
+A delegated agent should write its code to a file and return only the prose the orchestrator must
+read — a design rationale, a list of findings, a summary. Code in the reply body is wasted output:
+it is gated mechanically, not read, so routing it through the response only risks it landing in the
+orchestrator's context.
+
+When two agents work the same task in parallel, give each its own output directory under
+`orchestration/runs/` rather than forbidding writes — otherwise the second overwrites the first.
+
 ## Review order — cheapest check first
 
 Measured here: ~1900 lines read into the orchestrator's context yielded one bug. Running the code

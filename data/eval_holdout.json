@@ -1,0 +1,96 @@
+{
+  "sector_name": "Aurelia Sector",
+  "withheld_entity_ids": [
+    "house_vance",
+    "person_captain_elena",
+    "person_valerius_1",
+    "person_vanguard_adm",
+    "ship_vanguard_1",
+    "ship_vanguard_2"
+  ],
+  "houses": [
+    {
+      "id": "house_vance",
+      "name": "House Vance",
+      "aliases": [
+        "Shadow Weavers",
+        "Vance Syndicate"
+      ],
+      "description": "Secretive noble house specializing in espionage, neural communications, and covert intelligence networks.",
+      "motto": "Silence Rules the Void"
+    }
+  ],
+  "megacorporations": [],
+  "persons": [
+    {
+      "id": "person_valerius_1",
+      "name": "Grand Duke Marcus Valerius",
+      "aliases": [
+        "Iron Duke"
+      ],
+      "titles": [
+        "Lord Marshal of the Imperial Fleet",
+        "Duke of Forge Prime"
+      ],
+      "callsigns": [
+        "Ironclad-1"
+      ],
+      "affiliation_id": "house_valerius",
+      "role": "Supreme Commander of Valerius Armed Forces"
+    },
+    {
+      "id": "person_vanguard_adm",
+      "name": "Admiral Alexander Vance-Cross",
+      "aliases": [
+        "Void Bearer"
+      ],
+      "titles": [
+        "Supreme Fleet Commander of Vanguard Dynamics"
+      ],
+      "callsigns": [
+        "Vanguard Prime"
+      ],
+      "affiliation_id": "corp_vanguard_dyn",
+      "role": "Fleet Commander"
+    },
+    {
+      "id": "person_captain_elena",
+      "name": "Captain Elena Rostov",
+      "aliases": [
+        "Iron Sparrow"
+      ],
+      "titles": [
+        "Senior Commander of Dreadnought Aurelia-Prime"
+      ],
+      "callsigns": [
+        "Sparrow Lead"
+      ],
+      "affiliation_id": "house_valerius",
+      "role": "Flagship Naval Captain"
+    }
+  ],
+  "stations_and_ships": [
+    {
+      "id": "ship_vanguard_1",
+      "name": "Vanguard",
+      "aliases": [
+        "VD-Vanguard-Alpha"
+      ],
+      "type": "Heavy Strike Cruiser",
+      "is_homonym_risk": true,
+      "owner_id": "corp_vanguard_dyn",
+      "description": "Flagship escort cruiser operated by Vanguard Dynamics mercenary forces."
+    },
+    {
+      "id": "ship_vanguard_2",
+      "name": "Vanguard",
+      "aliases": [
+        "Valerius Vanguard"
+      ],
+      "type": "Assault Transport Ship",
+      "is_homonym_risk": true,
+      "owner_id": "house_valerius",
+      "description": "Heavy armored troop transport ship operated directly by House Valerius."
+    }
+  ]
+}
