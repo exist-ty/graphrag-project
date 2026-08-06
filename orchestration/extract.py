@@ -64,6 +64,29 @@ CONTRACTS: dict[str, list[tuple[str, str]]] = {
 }
 
 
+def check_holdout_leak(code: str) -> list[str]:
+    """
+    Find held-out entity names or ids hardcoded into the code.
+
+    The holdout exists so a mechanism has to *derive* a discriminator rather than be handed one.
+    Naming a withheld entity in the source turns entity resolution into a lookup and makes the
+    evaluation meaningless — while every other check still passes, which is why this one is
+    mechanical. Legitimate uses read `data/entity_registry.json` at runtime; none need a literal.
+    """
+    holdout = ROOT / "data" / "eval_holdout.json"
+    if not holdout.exists():
+        return []
+    data = json.loads(holdout.read_text(encoding="utf-8"))
+    terms: set[str] = set(data.get("withheld_entity_ids", []))
+    for section in ("houses", "megacorporations", "persons", "stations_and_ships"):
+        for entity in data.get(section, []):
+            terms.add(entity["name"])
+            terms.update(entity.get("aliases") or [])
+            terms.update(entity.get("callsigns") or [])
+    # Single short tokens produce noise; a discriminating literal is longer than that.
+    return sorted(t for t in terms if t and len(t) >= 5 and t in code)
+
+
 def run_gate(path: Path, code: str) -> bool:
     """
     Прогоняет механические проверки: компиляция, разрешимость импортов, контракт файла.
@@ -99,7 +122,12 @@ def run_gate(path: Path, code: str) -> bool:
             print(f"    ✗ запрещённая конструкция: {description}")
             ok = False
 
-    # 3. Контракт: то, о чём оркестратор договаривался в промпте.
+    # 3. Held-out entities must not appear as literals — see check_holdout_leak.
+    for term in check_holdout_leak(code):
+        print(f"    ✗ held-out entity hardcoded: {term!r} — the mechanism must derive it, not be told")
+        ok = False
+
+    # 4. Контракт: то, о чём оркестратор договаривался в промпте.
     for description, pattern in CONTRACTS.get(path.name, []):
         if not re.search(pattern, code, re.M):
             print(f"    ✗ нарушен контракт: {description}")
