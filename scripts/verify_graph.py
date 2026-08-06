@@ -380,6 +380,10 @@ def check_hierarchy_coverage(
     covered_links = 0
     direct_edge_links = 0
     max_traceable_level = 0
+    # Связи, у которых родитель и ребёнок схлопнулись в один узел графа: это провал,
+    # а не покрытие, поэтому считаются отдельно (см. ниже в цикле).
+    collapsed_links = 0
+    collapsed_pairs: List[Tuple[str, str, str]] = []
 
     for link in gt_hierarchy:
         p_id = link["parent_id"]
@@ -401,11 +405,12 @@ def check_hierarchy_coverage(
                     if p_node not in graph or c_node not in graph:
                         continue
                     if p_node == c_node:
-                        has_direct = True
-                        has_path = True
-                        min_path_len = 0
-                        connecting_path = [p_node]
-                        break
+                        # Родитель и ребёнок отобразились в ОДИН узел — это признак слипания,
+                        # а не успешно перенесённая связь. Засчитывать такое как покрытие нельзя:
+                        # иначе чем сильнее граф схлопывает сущности, тем выше выглядит метрика.
+                        collapsed_links += 1
+                        collapsed_pairs.append((p_id, c_id, p_node))
+                        continue
 
                     if graph.has_edge(p_node, c_node):
                         has_direct = True
@@ -448,6 +453,8 @@ def check_hierarchy_coverage(
         "total_hierarchy_links": total_links,
         "covered_links": covered_links,
         "direct_edge_links": direct_edge_links,
+        "collapsed_links": collapsed_links,
+        "collapsed_pairs": collapsed_pairs,
         "coverage_pct": round(coverage_pct, 2),
         "max_traceable_level": max_traceable_level,
         "details": hierarchy_results,
@@ -759,6 +766,10 @@ def print_human_report(report: Dict[str, Any], verbose: bool = False) -> None:
     print("-" * 80)
     print(f"Дошедшие связи: {h_rep['covered_links']} из {h_rep['total_hierarchy_links']} ({h_rep['coverage_pct']}%)")
     print(f"Прямые рёбра между родителем и ребёнком: {h_rep['direct_edge_links']}")
+    if h_rep.get("collapsed_links"):
+        print(f"⚠️ Связей, где родитель и ребёнок слиплись в ОДИН узел: {h_rep['collapsed_links']}")
+        for p_id, c_id, node in h_rep.get("collapsed_pairs", []):
+            print(f"   - {p_id} и {c_id} -> общий узел '{node}'")
     print(f"Прослеживаемая глубина иерархии: {h_rep['max_traceable_level']} уровней")
 
     missing_hierarchy = [h for h in h_rep["details"] if not h["has_path"]]

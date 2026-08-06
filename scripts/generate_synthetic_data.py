@@ -223,7 +223,23 @@ async def generate_ground_truth(client: genai.Client, target_file: pathlib.Path)
     )
 
     raw_json_str = await call_gemini_async_with_backoff(client, MODEL_NAME, prompt, config=config)
-    ground_truth_data = json.loads(raw_json_str)
+
+    # Санитаризация обязательна: call_gemini_async_with_backoff возвращает "" при исчерпании
+    # ретраев, а модель может обернуть JSON в markdown-ограждение даже при
+    # response_mime_type="application/json". Без этого json.loads падает необработанным.
+    raw_json_str = clean_llm_markdown(raw_json_str)
+    if not raw_json_str.strip():
+        raise RuntimeError(
+            "LLM вернула пустой ответ на seed-проход — ground truth не сгенерирован. "
+            "Проверьте квоту API и повторите."
+        )
+    try:
+        ground_truth_data = json.loads(raw_json_str)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Ответ LLM на seed-проход не является валидным JSON: {exc}. "
+            f"Начало ответа: {raw_json_str[:200]!r}"
+        ) from exc
 
     target_file.parent.mkdir(parents=True, exist_ok=True)
     with open(target_file, "w", encoding="utf-8") as f:

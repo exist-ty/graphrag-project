@@ -1,5 +1,29 @@
 # ТЗ: разрешение омонимов при построении графа
 
+## ВАЖНО: как читать файлы
+
+Тебе доступно ЧТЕНИЕ файлов, но НЕ выполнение shell-команд — запуск `ls`, `grep`, `find` и т.п.
+будет автоматически отклонён, и твой ответ пропадёт целиком. Поэтому не исследуй каталоги
+командами: открывай перечисленные ниже файлы напрямую по путям.
+
+Точные пути к исходникам LightRAG 1.5.5 (все существуют, проверено):
+
+- `.venv/Lib/site-packages/lightrag/prompt.py` (767 строк) — промпты извлечения сущностей
+- `.venv/Lib/site-packages/lightrag/operate.py` (6324 строки) — извлечение и СЛИЯНИЕ сущностей
+- `.venv/Lib/site-packages/lightrag/lightrag.py` (6061 строка) — класс LightRAG и его параметры
+- `.venv/Lib/site-packages/lightrag/addon_params.py` — пользовательские параметры извлечения
+- `.venv/Lib/site-packages/lightrag/utils.py` — EmbeddingFunc, wrap_embedding_func_with_attrs
+- `.venv/Lib/site-packages/lightrag/base.py`, `constants.py`, `namespace.py`
+- `.venv/Lib/site-packages/lightrag/llm/gemini.py` — биндинг Gemini
+- `.venv/Lib/site-packages/lightrag/kg/shared_storage.py`
+- `.venv/Lib/site-packages/lightrag/kg/nano_vector_db_impl.py`
+
+Файлы проекта (в корне рабочей директории): `data/ground_truth.json`, `scripts/build_kg.py`,
+`scripts/verify_graph.py`, `scripts/generate_synthetic_data.py`, `scripts/query_example.py`,
+`MEMORY.md`, `rag_storage/graph_chunk_entity_relation.graphml`.
+Документы корпуса: `data/generated/0001_propaganda_cygnus-prime-station.md` и другие с префиксами
+`0001`..`0024` (24 файла).
+
 ## Проблема — она подтверждена измерением, а не гипотеза
 
 Проект строит GraphRAG на LightRAG над синтетическим корпусом, специально спроектированным так,
