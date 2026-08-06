@@ -1,49 +1,49 @@
-# ТЗ: перевод документации проекта на английский
+# Spec: project documentation translation to English
 
-Задача рутинная, но требует аккуратности: это рабочая документация проекта, по которой потом
-принимаются решения. Смысл не должен поплыть.
+The task is routine but requires precision: this is the project's working documentation, which is
+used to make decisions later. The meaning must not drift.
 
-## Что делать
+## What to do
 
-Перевести на английский язык содержимое **одного** файла, имя которого будет назван в промпте
-(один из `CLAUDE.md`, `MEMORY.md`, `orchestration.md` в корне рабочей директории), и **записать
-перевод обратно в тот же файл**, полностью заменив содержимое.
+Translate into English the contents of **one** file whose name will be specified in the prompt
+(one of `CLAUDE.md`, `MEMORY.md`, `orchestration.md` in the root of the working directory), and **write
+the translation back to the same file**, replacing the content entirely.
 
-## Как переводить
+## How to translate
 
-- **Технический английский, без буквализмов.** Пиши так, как пишут инженерную документацию:
-  ясно и по делу. Не калькируй русский синтаксис.
-- **Структуру markdown сохранять точно**: те же заголовки и их уровни, те же списки, таблицы,
-  цитаты, порядок разделов. Отношение «раздел за разделом» между оригиналом и переводом должно
-  сохраняться — файл потом сверяют с историей git.
-- **НЕ переводить и не менять ни одного символа внутри**:
-  - блоков кода (``` ... ```) и инлайн-кода в обратных кавычках;
-  - путей к файлам (`scripts/build_kg.py`, `.venv/Lib/site-packages/...`), имён файлов;
-  - идентификаторов, имён функций, классов, констант, полей JSON;
-  - имён моделей (`gemini-3.6-flash`, `claude-sonnet-4-6`, `gpt-oss-120b-medium`, ...);
-  - названий флагов CLI (`--effort`, `--add-dir`, `--dangerously-skip-permissions`, ...);
-  - метрик квот (`GenerateRequestsPerMinutePerProjectPerModel-FreeTier` и подобных);
-  - текстов ошибок, приведённых дословно;
-  - URL и ссылок.
-- **Числа, лимиты, размерности, даты — переносить дословно.** Ни одно значение не должно
-  измениться: `3072`, `20 запросов в сутки` → `20 requests per day`, `2026-08-06` и т.п.
-- Выделения (`**жирный**`, `*курсив*`) сохранять там, где они несут смысл акцента.
-- Ничего не добавлять от себя: ни примечаний переводчика, ни новых разделов, ни «улучшений»
-  формулировок по существу. Ничего не выбрасывать, даже если кажется избыточным.
+- **Technical English, no literalism.** Write the way engineering documentation is written:
+  clearly and to the point. Do not mirror Russian syntax.
+- **Preserve the markdown structure exactly**: same headings at the same levels, same lists, tables,
+  quotes, same section order. The "section-by-section" correspondence between the original and the translation
+  must be preserved — the file will later be compared against git history.
+- **Do NOT translate or alter a single character inside**:
+  - code blocks (``` ... ```) and inline code in backticks;
+  - file paths (`scripts/build_kg.py`, `.venv/Lib/site-packages/...`), file names;
+  - identifiers, function, class, and constant names, JSON field names;
+  - model names (`gemini-3.6-flash`, `claude-sonnet-4-6`, `gpt-oss-120b-medium`, ...);
+  - CLI flag names (`--effort`, `--add-dir`, `--dangerously-skip-permissions`, ...);
+  - quota metrics (`GenerateRequestsPerMinutePerProjectPerModel-FreeTier` and similar);
+  - error messages quoted verbatim;
+  - URLs and links.
+- **Carry every number, limit, dimension, and date across unchanged.** Not a single value should
+  change: `3072`, `20 запросов в сутки` → `20 requests per day`, `2026-08-06`, etc.
+- Keep emphasis (`**bold**`, `*italic*`) wherever it carries importance.
+- Add nothing of your own: no translator's notes, no new sections, no "improved" phrasing of
+  substance. Do not drop anything, even if it seems redundant.
 
-## Особые указания по конкретным файлам
+## Special instructions for specific files
 
-- `CLAUDE.md` — это инструкции для агента Claude Code. Повелительное наклонение сохранять:
-  указания должны остаться указаниями («follow», «do not», «record»), а не превратиться в
-  описание.
-- `MEMORY.md` — файл фактов о состоянии проекта. Категоричность формулировок сохранять: если в
-  оригинале «проверено эмпирически» или «НЕ запускать», это должно остаться настолько же
-  однозначным (`verified empirically`, `do NOT run`).
-- `orchestration.md` — правила делегирования. Таблицу моделей сохранить именно таблицей, с тем же
-  числом строк и колонок.
+- `CLAUDE.md` — these are instructions for the Claude Code agent. Maintain the imperative mood:
+  directives must remain directives ("follow", "do not", "record"), rather than turning into
+  descriptions.
+- `MEMORY.md` — the file of facts about the project state. Maintain the assertiveness of formulations: if the
+  original says "verified empirically" or "do NOT run", it must remain just as
+  unambiguous (`verified empirically`, `do NOT run`).
+- `orchestration.md` — delegation rules. Preserve the model table exactly as a table, with the same
+  number of rows and columns.
 
-## Результат
+## Result
 
-Запиши переведённый текст обратно в тот же файл, заменив содержимое целиком. Ничего больше не
-трогай: другие файлы проекта не изменяй. В ответ верни одну строку — имя обработанного файла и
-число строк в результате. Сам текст перевода в ответ выводить не нужно.
+Write the translated text back to the same file, replacing the content entirely. Do not touch anything
+else: do not modify other project files. In response, return a single line — the name of the processed file and
+the resulting line count. Do not output the translated text itself in the response.

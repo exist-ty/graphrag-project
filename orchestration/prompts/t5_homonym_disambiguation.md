@@ -1,111 +1,111 @@
-# ТЗ: разрешение омонимов при построении графа
+# Spec: homonym disambiguation during graph construction
 
-## ВАЖНО: как читать файлы
+## IMPORTANT: how to read files
 
-Тебе доступно ЧТЕНИЕ файлов, но НЕ выполнение shell-команд — запуск `ls`, `grep`, `find` и т.п.
-будет автоматически отклонён, и твой ответ пропадёт целиком. Поэтому не исследуй каталоги
-командами: открывай перечисленные ниже файлы напрямую по путям.
+You can READ files, but you cannot execute shell commands — running `ls`, `grep`, `find`, etc.
+will be automatically denied, and your entire response will be lost. Therefore, do not explore directories
+using commands: open the files listed below directly by their paths.
 
-Точные пути к исходникам LightRAG 1.5.5 (все существуют, проверено):
+Exact paths to the LightRAG 1.5.5 source files (all exist, verified):
 
-- `.venv/Lib/site-packages/lightrag/prompt.py` (767 строк) — промпты извлечения сущностей
-- `.venv/Lib/site-packages/lightrag/operate.py` (6324 строки) — извлечение и СЛИЯНИЕ сущностей
-- `.venv/Lib/site-packages/lightrag/lightrag.py` (6061 строка) — класс LightRAG и его параметры
-- `.venv/Lib/site-packages/lightrag/addon_params.py` — пользовательские параметры извлечения
+- `.venv/Lib/site-packages/lightrag/prompt.py` (767 lines) — entity extraction prompts
+- `.venv/Lib/site-packages/lightrag/operate.py` (6324 lines) — extraction and MERGING of entities
+- `.venv/Lib/site-packages/lightrag/lightrag.py` (6061 lines) — LightRAG class and its parameters
+- `.venv/Lib/site-packages/lightrag/addon_params.py` — custom extraction parameters
 - `.venv/Lib/site-packages/lightrag/utils.py` — EmbeddingFunc, wrap_embedding_func_with_attrs
 - `.venv/Lib/site-packages/lightrag/base.py`, `constants.py`, `namespace.py`
-- `.venv/Lib/site-packages/lightrag/llm/gemini.py` — биндинг Gemini
+- `.venv/Lib/site-packages/lightrag/llm/gemini.py` — Gemini binding
 - `.venv/Lib/site-packages/lightrag/kg/shared_storage.py`
 - `.venv/Lib/site-packages/lightrag/kg/nano_vector_db_impl.py`
 
-Файлы проекта (в корне рабочей директории): `data/ground_truth.json`, `scripts/build_kg.py`,
+Project files (in the root of the working directory): `data/ground_truth.json`, `scripts/build_kg.py`,
 `scripts/verify_graph.py`, `scripts/generate_synthetic_data.py`, `scripts/query_example.py`,
 `MEMORY.md`, `rag_storage/graph_chunk_entity_relation.graphml`.
-Документы корпуса: `data/generated/0001_propaganda_cygnus-prime-station.md` и другие с префиксами
-`0001`..`0024` (24 файла).
+Corpus documents: `data/generated/0001_propaganda_cygnus-prime-station.md` and others with prefixes
+`0001`..`0024` (24 files).
 
-## Проблема — она подтверждена измерением, а не гипотеза
+## The problem — it is confirmed by measurement, not a hypothesis
 
-Проект строит GraphRAG на LightRAG над синтетическим корпусом, специально спроектированным так,
-чтобы нагружать тяжёлые места графовых RAG. Одно из них — **омонимы**: в `data/ground_truth.json`
-намеренно заведены РАЗНЫЕ объекты с одинаковыми именами (помечены `is_homonym_risk`):
+The project builds GraphRAG using LightRAG over a synthetic corpus specifically designed to
+stress-test the pain points of graph RAGs. One of them is **homonyms**: in `data/ground_truth.json`
+DIFFERENT objects with the same names are intentionally introduced (marked as `is_homonym_risk`):
 
-- станция `Aurelia-Prime` и дредноут `Aurelia-Prime` — разные сущности, разные владельцы;
-- два корабля `Vanguard` — ударный крейсер и десантный транспорт, у разных домов.
+- the station `Aurelia-Prime` and the dreadnought `Aurelia-Prime` — different entities, different owners;
+- two ships named `Vanguard` — a heavy strike cruiser and a landing transport, belonging to different houses.
 
-Прогон `scripts/verify_graph.py` на построенном графе показал **критический провал**: обе группы
-схлопнулись в один узел каждая (`Aurilia-Prime`, `Vanguard-2`). То есть извлечение сущностей
-LightRAG склеивает разные объекты по совпадению имени — а именно этого корпус и не должен был
-допустить.
+Running `scripts/verify_graph.py` on the constructed graph showed a **critical failure**: both groups
+collapsed into a single node each (`Aurilia-Prime`, `Vanguard-2`). That is, the entity extraction
+of LightRAG merges different objects based on name match — which is exactly what the corpus was
+designed to prevent.
 
-Зеркальная беда там же: одна и та же сущность разъезжается на НЕСКОЛЬКО узлов (канон и алиас
-как разные узлы) — например `Empress Cassandria Aurelius` дала узлы `Crown Prime` и
-`Lady Of The Crown Citadel`, а `Chief Architect Archon Kaelen` — `Mindsmith` и `Zero Core`.
+A mirror problem occurs in the same place: the exact same entity is split across MULTIPLE nodes (canonical name
+and alias as different nodes) — for example, `Empress Cassandria Aurelius` resulted in nodes `Crown Prime` and
+`Lady Of The Crown Citadel`, and `Chief Architect Archon Kaelen` yielded `Mindsmith` and `Zero Core`.
 
-## Что надо сделать
+## What needs to be done
 
-Спроектировать и реализовать механизм разрешения омонимов и алиасов для этого пайплайна.
-Итог — **один новый файл** `scripts/disambiguate.py` плюс, если нужно, точечные правки
-`scripts/build_kg.py` (их опиши отдельно, см. формат ответа).
+Design and implement a homonym and alias disambiguation mechanism for this pipeline.
+The result should be **one new file** `scripts/disambiguate.py` plus, if necessary, targeted changes
+to `scripts/build_kg.py` (describe them separately, see response format).
 
-Решение принимаешь ты — это не задача «примени готовый рецепт». Но реши её осознанно, а не
-первым пришедшим способом: перед тем как писать код, посмотри, ЧТО реально доступно в пайплайне.
+You make the decision — this is not a "apply a ready-made recipe" task. Solve it mindfully, not
+by the first method that comes to mind: before writing code, look at WHAT is actually available in the pipeline.
 
-## Что прочитать перед проектированием (файлы доступны, читай сам)
+## What to read before designing (files are available, read them yourself)
 
-- `data/ground_truth.json` — эталон: структура сущностей, алиасы, `is_homonym_risk`, иерархия
-- `scripts/build_kg.py` — как собирается LightRAG, где точки расширения
-- `scripts/verify_graph.py` — как измеряется провал; твоя работа должна двигать ИМЕННО эти метрики
-- `rag_storage/graph_chunk_entity_relation.graphml` — реальный граф: имена узлов, атрибуты
-- `data/generated/*.md` — документы; во frontmatter есть `subject_entity_ids` со ссылками на
-  ground truth, это точная привязка документа к эталону
-- `.venv/Lib/site-packages/lightrag/` — **исходники LightRAG 1.5.5**. Обязательно посмотри
-  `prompt.py` (промпты извлечения сущностей), `lightrag.py` (параметры `LightRAG`, в частности
-  `addon_params` и то, как передаются пользовательские типы сущностей), `operate.py`
-  (слияние сущностей — где именно происходит склейка по имени), `utils.py`.
-  Не гадай по памяти: версия конкретная, читай код.
+- `data/ground_truth.json` — ground truth: entity structure, aliases, `is_homonym_risk`, hierarchy
+- `scripts/build_kg.py` — how LightRAG is built, where the extension points are
+- `scripts/verify_graph.py` — how the failure is measured; your work must move EXACTLY these metrics
+- `rag_storage/graph_chunk_entity_relation.graphml` — real graph: node names, attributes
+- `data/generated/*.md` — documents; the frontmatter contains `subject_entity_ids` with references to the
+  ground truth, which is a precise mapping of the document to the ground truth reference
+- `.venv/Lib/site-packages/lightrag/` — **LightRAG 1.5.5 source files**. Make sure to look at
+  `prompt.py` (entity extraction prompts), `lightrag.py` (`LightRAG` parameters, in particular
+  `addon_params` and how user-defined entity types are passed), `operate.py`
+  (entity merging — where exactly the name-based merging happens), `utils.py`.
+  Do not guess from memory: the version is specific, read the code.
 
-## Направления, которые стоит рассмотреть (не обязательный список, а пища для размышления)
+## Approaches to consider (not a mandatory list, but food for thought)
 
-1. Обогащение самих документов: приписать в текст/frontmatter квалифицирующий признак
-   (`Vanguard (Heavy Strike Cruiser, House Vance)`) — дёшево, но меняет корпус.
-2. Кастомный промпт извлечения через `addon_params` / переопределение `PROMPTS` — заставить
-   модель различать одноимённые объекты по типу и владельцу.
-3. Пост-обработка графа: расщепление слипшегося узла на несколько по признакам из
-   `source_id`/`file_path`/описаний, и наоборот — слияние узлов-алиасов в один каноничный.
-4. Гибрид: пост-обработка с опорой на ground truth как на словарь синонимов.
+1. Document enrichment: append a qualifying attribute to the text/frontmatter
+   (`Vanguard (Heavy Strike Cruiser, House Vance)`) — cheap, but modifies the corpus.
+2. Custom extraction prompt via `addon_params` / overriding `PROMPTS` — force the
+   model to distinguish same-named objects by type and owner.
+3. Graph post-processing: splitting a merged node into multiple ones based on attributes from
+   `source_id`/`file_path`/descriptions, and vice versa — merging alias nodes into a single canonical one.
+4. Hybrid: post-processing relying on ground truth as a synonym dictionary.
 
-У каждого варианта есть цена: (1) искажает корпус, из-за чего задача становится проще, чем
-реальная; (2) требует лишних LLM-вызовов, а квота free tier поминутная и узкая; (3) детерминирован
-и бесплатен, но работает по следам, а не по сути. **Явно обоснуй свой выбор** — почему именно он,
-и что теряется.
+Each option has a cost: (1) distorts the corpus, making the task easier than
+the real one; (2) requires extra LLM calls, whereas the free tier quota is per-minute and narrow; (3) is deterministic
+and free, but works on traces rather than the core substance. **Explicitly justify your choice** — why exactly this one,
+and what is lost.
 
-## Жёсткие ограничения
+## Hard constraints
 
-- Зависимости: только stdlib + numpy + networkx + уже установленные `lightrag-hku`, `google-genai`,
-  `python-dotenv`. Ничего нового не ставить.
-- **Квота API — поминутная и узкая** (LLM `gemini-3.5-flash-lite`, embedding `gemini-embedding-2`).
-  Решение, требующее сотен дополнительных LLM-вызовов, непригодно. Детерминированное решение
-  без сети предпочтительно; если LLM всё же нужна — обоснуй и сведи число вызовов к минимуму.
-- Скрипт не должен ломать уже построенное хранилище необратимо: работа поверх копии или явный
-  флаг `--in-place`, по умолчанию — сухой прогон с отчётом о том, что будет изменено.
-- CLI на argparse, логирование через `logging`, аннотации типов, комментарии и докстринги
-  на русском, идентификаторы на английском.
-- `python scripts/disambiguate.py --help` должен работать без построенного графа.
+- Dependencies: only stdlib + numpy + networkx + already installed `lightrag-hku`, `google-genai`,
+  `python-dotenv`. Do not install anything new.
+- **API Quota — per-minute and narrow** (LLM `gemini-3.5-flash-lite`, embedding `gemini-embedding-2`).
+  A solution requiring hundreds of extra LLM calls is unacceptable. A deterministic offline
+  solution is preferred; if LLM is still needed — justify it and minimize the number of calls.
+- The script must not break the already built storage irreversibly: work on a copy or use an explicit
+  `--in-place` flag, by default — dry run with a report on what will be changed.
+- CLI using argparse, logging via `logging`, type annotations, comments and docstrings in English, identifiers in English.
+- `python scripts/disambiguate.py --help` must work without the built graph.
 
-## Критерий успеха
+## Success criteria
 
-После применения твоего механизма повторный прогон `scripts/verify_graph.py` должен показать:
-- обе группы омонимов — РАЗДЕЛЕНЫ, а не слиплись;
-- число расщеплённых алиасов — уменьшилось;
-- покрытие сущностей и иерархии — не ухудшилось.
+After applying your mechanism, a rerun of `scripts/verify_graph.py` must show:
+- both groups of homonyms are SPLIT, not merged;
+- the number of split aliases is reduced;
+- coverage of entities and hierarchy has not degraded.
 
-## Формат ответа
+## Response format
 
-1. Сначала короткий раздел `## Решение` — обычным текстом, 10-20 строк: какой подход выбран,
-   почему именно он, что теряется, какие метрики `verify_graph.py` он должен сдвинуть.
-2. Затем РОВНО ОДИН блок ```python с полным содержимым `scripts/disambiguate.py`.
-3. Если нужны правки в `scripts/build_kg.py` — после него отдельный блок ```diff с точечным
-   диффом. Если правки не нужны, блок не добавляй.
+1. First, a brief section `## Solution` — plain text, 10-20 lines: which approach is chosen,
+   why, what is lost, and which metrics in `verify_graph.py` it should shift.
+2. Then EXACTLY ONE ```python block with the complete content of `scripts/disambiguate.py`.
+3. If changes are needed in `scripts/build_kg.py` — follow it with a separate ```diff block containing
+   a targeted diff. If no changes are needed, do not add the block.
 
-Файлы сам не создавай и не редактируй — верни всё текстом в ответе.
+Do not create or edit the files yourself — return everything as text in the response.
+

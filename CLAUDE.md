@@ -35,6 +35,8 @@ exists because ignoring it cost context on a real run.
   delegated review → own reading, only at the lines the earlier steps pointed to. Measured on this
   project: ~1900 lines read by hand yielded one bug; running the code and a delegated review found
   everything expensive.
+- **Write everything an agent reads in English** — specs, prompts, and the docstrings you ask
+  delegated code to produce. Russian is for conversation with the user only.
 - **`git diff` after every delegated run.** Delegated agents write into the working tree even
   without `--dangerously-skip-permissions`, and they exceed their stated scope.
 - **Do not poll background tasks.** Completion arrives as a notification.

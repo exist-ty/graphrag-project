@@ -30,6 +30,21 @@ line. Two hard reasons:
 `--print` takes its value as an argument and does not read stdin — piping into it makes the next
 flag the prompt.
 
+## Everything an agent reads is written in English
+
+Specs in `orchestration/prompts/`, the one-line argv prompt, and any instruction addressed to a
+delegated agent — all in English. Ask delegated code for English docstrings and comments too.
+Russian stays only in conversation with the user.
+
+Three reasons, all observed here:
+
+- Models follow English instructions more reliably. Both runs that ignored "read these files, do not
+  explore" and reached for a shell instead were driven by Russian specs.
+- Cyrillic costs 2 bytes per character in UTF-8, so a Russian prompt hits the 32767-byte argv ceiling
+  at roughly half the length of an English one.
+- Instructions and code end up in the same context during review; one language means no switching
+  cost for the reviewing model.
+
 ## Models
 
 | Model | Use for |

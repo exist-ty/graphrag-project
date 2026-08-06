@@ -1,77 +1,77 @@
-# ТЗ: сквозное ревью пайплайна GraphRAG
+# Spec: end-to-end GraphRAG pipeline review
 
-## ВАЖНО: как читать файлы
+## IMPORTANT: how to read files
 
-Тебе доступно ЧТЕНИЕ файлов, но НЕ выполнение shell-команд — запуск `ls`, `grep`, `find` и т.п.
-будет автоматически отклонён, и твой ответ пропадёт целиком. Поэтому не исследуй каталоги
-командами: открывай перечисленные ниже файлы напрямую по путям.
+You can READ files, but you cannot execute shell commands — running `ls`, `grep`, `find`, etc.
+will be automatically denied, and your entire response will be lost. Therefore, do not explore directories
+using commands: open the files listed below directly by their paths.
 
-Точные пути к исходникам LightRAG 1.5.5 (все существуют, проверено):
+Exact paths to the LightRAG 1.5.5 source files (all exist, verified):
 
-- `.venv/Lib/site-packages/lightrag/prompt.py` (767 строк) — промпты извлечения сущностей
-- `.venv/Lib/site-packages/lightrag/operate.py` (6324 строки) — извлечение и СЛИЯНИЕ сущностей
-- `.venv/Lib/site-packages/lightrag/lightrag.py` (6061 строка) — класс LightRAG и его параметры
-- `.venv/Lib/site-packages/lightrag/addon_params.py` — пользовательские параметры извлечения
+- `.venv/Lib/site-packages/lightrag/prompt.py` (767 lines) — entity extraction prompts
+- `.venv/Lib/site-packages/lightrag/operate.py` (6324 lines) — extraction and MERGING of entities
+- `.venv/Lib/site-packages/lightrag/lightrag.py` (6061 lines) — LightRAG class and its parameters
+- `.venv/Lib/site-packages/lightrag/addon_params.py` — custom extraction parameters
 - `.venv/Lib/site-packages/lightrag/utils.py` — EmbeddingFunc, wrap_embedding_func_with_attrs
 - `.venv/Lib/site-packages/lightrag/base.py`, `constants.py`, `namespace.py`
-- `.venv/Lib/site-packages/lightrag/llm/gemini.py` — биндинг Gemini
+- `.venv/Lib/site-packages/lightrag/llm/gemini.py` — Gemini binding
 - `.venv/Lib/site-packages/lightrag/kg/shared_storage.py`
 - `.venv/Lib/site-packages/lightrag/kg/nano_vector_db_impl.py`
 
-Файлы проекта (в корне рабочей директории): `data/ground_truth.json`, `scripts/build_kg.py`,
+Project files (in the root of the working directory): `data/ground_truth.json`, `scripts/build_kg.py`,
 `scripts/verify_graph.py`, `scripts/generate_synthetic_data.py`, `scripts/query_example.py`,
 `MEMORY.md`, `rag_storage/graph_chunk_entity_relation.graphml`.
-Документы корпуса: `data/generated/0001_propaganda_cygnus-prime-station.md` и другие с префиксами
-`0001`..`0024` (24 файла).
+Corpus documents: `data/generated/0001_propaganda_cygnus-prime-station.md` and others with prefixes
+`0001`..`0024` (24 files).
 
-Ты — независимый ревьюер. Задача: найти РЕАЛЬНЫЕ дефекты в коде проекта, сверяя его не с общими
-представлениями, а с исходниками установленных библиотек. Ничего не исправляй — только находи
-и обосновывай.
+You are an independent reviewer. Task: find REAL defects in the project code by verifying it not against general
+conceptions, but against the source code of the installed libraries. Do not fix anything — only find
+and justify.
 
-## Что ревьюить
+## What to review
 
-- `scripts/generate_synthetic_data.py` — генератор синтетического корпуса (Gemini API напрямую)
-- `scripts/build_kg.py` — ингестия в LightRAG
-- `scripts/query_example.py` — CLI поверх готового графа
-- `scripts/verify_graph.py` — верификация графа против `data/ground_truth.json`
+- `scripts/generate_synthetic_data.py` — synthetic corpus generator (Gemini API directly)
+- `scripts/build_kg.py` — ingestion into LightRAG
+- `scripts/query_example.py` — CLI on top of the built graph
+- `scripts/verify_graph.py` — graph verification against `data/ground_truth.json`
 
-## С чем сверять (читай сам, файлы доступны)
+## What to compare against (read them yourself, files are available)
 
-- `.venv/Lib/site-packages/lightrag/` — **исходники LightRAG 1.5.5**: `lightrag.py`, `operate.py`,
-  `utils.py` (там `EmbeddingFunc` и `wrap_embedding_func_with_attrs`), `llm/gemini.py`,
+- `.venv/Lib/site-packages/lightrag/` — **LightRAG 1.5.5 source files**: `lightrag.py`, `operate.py`,
+  `utils.py` (containing `EmbeddingFunc` and `wrap_embedding_func_with_attrs`), `llm/gemini.py`,
   `kg/shared_storage.py`, `kg/nano_vector_db_impl.py`.
-- `.venv/Lib/site-packages/google/genai/` — исходники SDK `google-genai` 2.16.0.
-- `data/ground_truth.json`, `data/generated/*.md` — реальные данные.
-- `rag_storage/` — реальное хранилище (может быть неполным, ингестия шла с ошибками квоты).
-- `MEMORY.md` — накопленные факты по проекту: подтверждённые ловушки, лимиты квот, принятые
-  решения. Прочитай обязательно, чтобы не «находить» уже известное и учтённое.
+- `.venv/Lib/site-packages/google/genai/` — SDK `google-genai` 2.16.0 source files.
+- `data/ground_truth.json`, `data/generated/*.md` — real data.
+- `rag_storage/` — real storage (might be incomplete, ingestion was running with quota errors).
+- `MEMORY.md` — accumulated facts about the project: confirmed pitfalls, quota limits, decisions
+  made. Be sure to read it to avoid "finding" already known and accounted for issues.
 
-## На что смотреть в первую очередь
+## What to look for first
 
-1. **Расхождения с реальным API библиотек** — сигнатуры, порядок инициализации, побочные эффекты
-   декораторов, параметры, которые молча игнорируются.
-2. **Ошибки, которые НЕ приводят к исключению**, а тихо портят данные: неверная размерность
-   векторов, потеря части батча, перезапись, рассинхрон журнала и фактического состояния.
-3. **Конкурентность**: гонки за общее состояние, семафоры и ограничители частоты, ошибки в
-   `asyncio.gather`, проглоченные исключения, неверное поведение при частичном отказе.
-4. **Обработка отказов API**: ретраи, которые ловят не тот класс исключений; ретраи там, где они
-   бессмысленны; отсутствие ретрая там, где он необходим.
-5. **Согласованность между скриптами**: контракт `create_rag`, форматы файлов, имена и расширения,
-   предположения одного скрипта о выводе другого.
-6. **Корректность метрик в `verify_graph.py`** — этот файл важен особо: если он МЕРЯЕТ НЕВЕРНО,
-   все выводы о качестве графа ложны. Проверь логику нечёткого сопоставления, определение слипания
-   омонимов и расщепления алиасов, обход иерархии, подсчёт multi-hop.
+1. **Discrepancies with the actual library API** — signatures, initialization order, side effects
+   of decorators, parameters that are silently ignored.
+2. **Errors that do NOT raise an exception** but silently corrupt data: incorrect vector
+   dimensionality, loss of part of a batch, overwriting, desynchronization between log and actual state.
+3. **Concurrency**: race conditions for shared state, semaphores and rate limiters, errors in
+   `asyncio.gather`, swallowed exceptions, incorrect behavior on partial failure.
+4. **API failure handling**: retries that catch the wrong exception class; retries where they
+   are pointless; absence of retries where they are necessary.
+5. **Consistency between scripts**: `create_rag` contract, file formats, names and extensions,
+   assumptions of one script about the output of another.
+6. **Metrics correctness in `verify_graph.py`** — this file is especially important: if it MEASURES INCORRECTLY,
+   all conclusions about the graph quality are false. Verify fuzzy matching logic, detection of homonym
+   merging and alias splitting, hierarchy traversal, multi-hop counting.
 
-## Чего НЕ надо
+## What NOT to do
 
-- Не предлагать стилистические правки, переименования, реорганизацию ради красоты.
-- Не пересказывать, что делает код.
-- Не сообщать о том, что уже описано в `MEMORY.md` как известное и сознательно принятое.
-- Не предлагать новые зависимости.
+- Do not suggest stylistic edits, renaming, or reorganization for the sake of beauty.
+- Do not describe what the code does.
+- Do not report what is already described in `MEMORY.md` as known and deliberately accepted.
+- Do not suggest new dependencies.
 
-## Формат ответа
+## Response format
 
-Только текст, без кода-заплаток. Для каждой находки строго:
+Text only, no code patches. For each finding strictly:
 
 ```
 ### <краткое название>
@@ -82,5 +82,5 @@
 Доказательство: <ссылка на конкретное место в исходниках библиотеки или на факт из данных>
 ```
 
-Сортируй по серьёзности, самое опасное первым. Если находок нет — так и скажи, не выдумывай.
-В конце — раздел `## Итог` на 5-10 строк: где пайплайн наиболее хрупок и что чинить первым.
+Sort by severity, the most dangerous first. If there are no findings — say so, do not make them up.
+At the end — section `## Итог` of 5-10 lines: where the pipeline is most fragile and what to fix first.
