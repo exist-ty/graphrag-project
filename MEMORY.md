@@ -130,6 +130,40 @@ groups collapsed — the station and the dreadnought `Aurelia-Prime` merged into
 two different `Vanguard` ships merged into `Vanguard-2`. In addition, 5 entities split into multiple nodes
 (canonical name and alias as separate nodes). Coverage numbers are preliminary, repeat after full ingestion.
 
+## Phase 4 attempt 1 — ingestion-time resolution, partial result
+
+`scripts/build_kg.py` now canonicalises entity names inside the ingestion path (extraction prompt
+rule + rewriting of entity/relation tuples in `llm_model_func` before LightRAG stores them), so
+GraphML and `vdb_*.json` receive the same ids by construction. Previous version kept at
+`orchestration/runs/build_kg.pre-t9c.py`, previous storage at `rag_storage.pre-t9c/`.
+
+First full clean rebuild: **24/24 documents processed, zero failures**, 1160 s, 208 nodes.
+
+Verification after the change:
+
+| Metric | Before | After |
+|---|---|---|
+| Entity / hierarchy / multi-hop / timeline coverage | 100% | 100% |
+| Homonym groups separated | 0/2 | 0/2 |
+| Alias splitting | 18 | 15 |
+
+**Why homonyms still read as collapsed.** The mechanism does produce qualified nodes —
+`VD-Vanguard-Alpha (Heavy Strike Cruiser)`, `Valerius Vanguard (Landing Transport)`,
+`Aurelia-Prime Space Station`, `Aurelia Prime Flagship`. It does not *displace* the unqualified
+ones: `Vanguard`, `Vanguard-2`, `Aurelia Prime`, `Aurilia-Prime` also exist and fuzzy-match both
+members of a pair, which is what the check reports. This is the design's own Risk 1 — the extractor
+still emits a bare short name on noisy chunks.
+
+Consequences for the next attempt:
+
+- The resolver passes a bare name through when it finds no evidence. It must never emit an
+  unqualified name for an entity type known to be ambiguous; with no evidence it should fall back to
+  a deterministic qualifier (chunk's dominant owner/type) rather than leaving the bare form.
+- The binary "separated / collapsed" metric hides real progress and should become precision/recall
+  over resolved mentions — this is step 4 of Phase 4 and is now worth doing before another rebuild,
+  so the next run is measured rather than guessed at.
+- A rebuild costs ~20 minutes and a meaningful slice of daily quota. Do not iterate blindly.
+
 ## Open questions / risks
 
 - Query interface (built-in `lightrag-server` with Web UI / MCP wrapper / simple CLI) —
