@@ -16,10 +16,10 @@ import logging
 import os
 import sys
 import time
-from functools import partial
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from dotenv import load_dotenv
 from lightrag import LightRAG
 from lightrag.kg.shared_storage import initialize_pipeline_status
@@ -104,6 +104,44 @@ async def llm_model_func(
 # Фабрика RAG
 # ---------------------------------------------------------------------------
 
+# Ограничивает число одновременных запросов к embedding-API: обёртка ниже разворачивает
+# каждый батч в отдельные вызовы, и без этого их число множилось бы на embedding_func_max_async.
+_EMBED_SEMAPHORE = asyncio.Semaphore(4)
+
+
+async def embed_texts_one_by_one(
+    texts: list[str],
+    max_token_size: int | None = None,
+    context: str = "document",
+    **kwargs: Any,
+) -> "np.ndarray":
+    """
+    Эмбеддинг списка текстов по одному запросу на текст.
+
+    ЛОВУШКА БАТЧА: `gemini-embedding-2` на вход из нескольких текстов возвращает РОВНО ОДИН
+    вектор — молча, без ошибки (проверено прямыми вызовами `embed_content` на 1/2/4 текстах:
+    во всех случаях `len(response.embeddings) == 1`). Штатный биндинг
+    `lightrag.llm.gemini.gemini_embed` шлёт весь батч одним запросом и ожидает N векторов, из-за
+    чего LightRAG падает с `Vector count mismatch: expected N vectors but got 1`.
+
+    Поэтому батч разворачивается в отдельные запросы. Это дороже по числу запросов к API,
+    но единственный корректный вариант: иначе в индекс попали бы неверные векторы.
+    """
+    async def one(text: str) -> "np.ndarray":
+        async with _EMBED_SEMAPHORE:
+            return await gemini_embed.func(  # type: ignore[attr-defined]
+                [text],
+                model=EMBED_MODEL,
+                api_key=os.environ["GEMINI_API_KEY"],
+                max_token_size=max_token_size,
+                context=context,
+                **kwargs,
+            )
+
+    parts = await asyncio.gather(*(one(text) for text in texts))
+    return np.vstack(parts)
+
+
 async def create_rag(working_dir: str = "rag_storage") -> LightRAG:
     """
     Собирает и полностью инициализирует экземпляр LightRAG.
@@ -129,17 +167,12 @@ async def create_rag(working_dir: str = "rag_storage") -> LightRAG:
             "GEMINI_API_KEY не найден. Добавьте его в файл .env в корне проекта."
         )
 
-    # Сырая функция без декоратора — см. «ЛОВУШКА ДВОЙНОЙ ОБЁРТКИ» выше
-    raw_embed_func = partial(
-        gemini_embed.func,          # type: ignore[attr-defined]
-        model=EMBED_MODEL,
-        api_key=api_key,
-    )
-
+    # Обёртка сама берёт gemini_embed.func — см. «ЛОВУШКА ДВОЙНОЙ ОБЁРТКИ» выше — и, кроме того,
+    # разворачивает батч в отдельные запросы (см. «ЛОВУШКА БАТЧА» в embed_texts_one_by_one).
     embedding_func = EmbeddingFunc(
         embedding_dim=EMBED_DIM,
         max_token_size=EMBED_MAX_TOKENS,
-        func=raw_embed_func,
+        func=embed_texts_one_by_one,
         model_name=EMBED_MODEL,
         supports_asymmetric=True,
     )
@@ -151,7 +184,7 @@ async def create_rag(working_dir: str = "rag_storage") -> LightRAG:
         embedding_func=embedding_func,
         llm_model_max_async=4,
         embedding_batch_num=10,
-        embedding_func_max_async=8,
+        embedding_func_max_async=2,
         max_parallel_insert=3,
         summary_max_tokens=1200,
     )
@@ -192,6 +225,43 @@ def _file_hash(content: str) -> str:
 # ---------------------------------------------------------------------------
 # Верификация хранилища
 # ---------------------------------------------------------------------------
+
+def _report_doc_statuses(working_dir: Path) -> bool:
+    """
+    Читает фактические статусы документов из kv_store_doc_status.json.
+
+    Нужно потому, что `ainsert` НЕ бросает исключение, когда внутренний пайплайн LightRAG
+    останавливается на ошибке хранилища: вызов возвращается штатно, и без этой проверки сводка
+    отрапортует «проингестировано N/N», хотя граф на деле неполон.
+
+    Возвращает True, если все документы в статусе processed.
+    """
+    status_file = working_dir / "kv_store_doc_status.json"
+    if not status_file.exists():
+        logger.warning("Файл статусов %s не найден — статусы проверить нечем.", status_file)
+        return False
+
+    try:
+        data = json.loads(status_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Не удалось прочитать %s: %s", status_file, exc)
+        return False
+
+    counts: dict[str, int] = {}
+    for record in data.values():
+        status = str(record.get("status", "unknown")).lower()
+        counts[status] = counts.get(status, 0) + 1
+
+    logger.info("Статусы документов: %s", counts or "пусто")
+    bad = {s: c for s, c in counts.items() if s != "processed"}
+    if bad:
+        logger.error(
+            "НЕ все документы обработаны (%s). Граф неполон — смотрите ошибки пайплайна выше.",
+            bad,
+        )
+        return False
+    return True
+
 
 def _verify_storage(working_dir: Path) -> None:
     """
@@ -363,6 +433,7 @@ async def run_ingestion(
     )
 
     _verify_storage(working_dir)
+    _report_doc_statuses(working_dir)
 
 
 # ---------------------------------------------------------------------------

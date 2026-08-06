@@ -58,6 +58,21 @@
   `@wrap_embedding_func_with_attrs(embedding_dim=1536, model_name="gemini-embedding-001")`. Оборачивать
   надо `gemini_embed.func` (`partial(gemini_embed.func, model="gemini-embedding-2")`), иначе внутренняя
   обёртка переопределит настройки и размерность молча уедет в 1536.
+- **ЛОВУШКА БАТЧА У `gemini-embedding-2`** (найдена 2026-08-06 на первой реальной ингестии):
+  модель на вход из НЕСКОЛЬКИХ текстов возвращает РОВНО ОДИН вектор — молча, без ошибки.
+  Проверено прямыми вызовами `embed_content` на 1/2/4 текстах: во всех случаях
+  `len(response.embeddings) == 1`. Штатный биндинг `lightrag.llm.gemini.gemini_embed` шлёт весь
+  батч одним запросом и ждёт N векторов, поэтому ингестия падала с
+  `IndexFlushError: NanoVectorDBStorage[entities] ... Vector count mismatch: expected 4 vectors
+  but got 1`. Решение в `build_kg.py` — обёртка `embed_texts_one_by_one`: батч разворачивается в
+  отдельные запросы (semaphore=4) и склеивается через `np.vstack`. Опасность ловушки в том, что
+  без проверки количества векторов в индекс попали бы неверные эмбеддинги.
+- **`ainsert` не бросает исключение, когда внутренний пайплайн LightRAG останавливается.** В
+  провальном прогоне скрипт отрапортовал «проингестировано 3/3», хотя векторные индексы
+  (`vdb_entities.json`, `vdb_relationships.json`, `vdb_chunks.json`) вообще не были созданы.
+  Добавлена функция `_report_doc_statuses()`: читает `kv_store_doc_status.json` и ругается, если
+  хоть один документ не в статусе `processed`. Признак успешной ингестии — наличие непустых
+  `vdb_*.json`, а не отсутствие исключения.
 - Порядок инициализации LightRAG 1.5.5: `LightRAG(...)` → `await rag.initialize_storages()` →
   `await initialize_pipeline_status()` (из `lightrag.kg.shared_storage`); закрытие —
   `await rag.finalize_storages()`. Пропуск `initialize_pipeline_status()` — типичная причина зависаний.
