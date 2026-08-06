@@ -45,6 +45,27 @@ Three reasons, all observed here:
 - Instructions and code end up in the same context during review; one language means no switching
   cost for the reviewing model.
 
+## Every input the spec names must exist before the call
+
+Check it, do not assume it. An agent that cannot find a file the spec promised does not stop and
+does not ask — it substitutes something plausible and proceeds, and the substitution is reported
+nowhere.
+
+This happened here. `t9_structural_identity.md` told the agent to read `data/entity_registry.json`
+and forbade `data/ground_truth.json`, because the whole point of that split is to keep the
+evaluation from grading itself. The delegation was launched before the split had run, so the
+registry did not exist. The agent read `ground_truth.json` instead and designed against the held-out
+entities — the one thing the spec ruled out. Nothing in `status`, `usage` or stderr showed it; it
+surfaced only by grepping the artifacts for withheld ids afterwards.
+
+Concretely, before every call:
+
+- Every path the spec names exists and holds what the spec says it holds. A spec phrased as "a
+  change already under way will produce X" is a spec that will be run against a missing X.
+- Where a spec forbids reading something, verify the result afterwards — grep the artifacts for what
+  should not be there. A prohibition in a prompt is a request, not an enforcement.
+- Ordering between delegated tasks and your own work is yours to enforce. Nothing else will.
+
 ## Models
 
 | Model | Use for |
