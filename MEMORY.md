@@ -16,25 +16,20 @@ Last update: 2026-08-06
 - Progress on PLAN.md: code is ready; "Verification" step — seed pass is complete, next on the list is
   small batch generation → `build_kg.py` → queries in different modes.
 
-## Delegation: what actually worked
+## Delegation: project-specific outcomes
 
-Run scheme: I (Claude Code) am the orchestrator, preparing self-contained prompts with **verified
-API signatures** (introspection of installed packages, not model memory), `agy --print` writes the code,
-I read and fix it. Prompts are located in `orchestration/prompts/`, extraction from JSON is in
-`orchestration/extract.py`, raw responses are in `orchestration/runs/` (gitignored).
+Specs live in `orchestration/prompts/`, raw replies in `orchestration/runs/` (gitignored), and
+`orchestration/extract.py` gates every result before it reaches `scripts/`. Method is in
+`orchestration.md`; only this project's outcomes are recorded here.
 
-- Routing: `build_kg.py` → `claude-sonnet-4-6` (the finest integration),
-  `query_example.py` and `generate_synthetic_data.py` → `gemini-3.6-flash-high`.
-- **`gpt-oss-120b-medium` failed `generate_synthetic_data.py`**: it wrote the entire script using the old,
-  uninstalled `google.generativeai` SDK (`genai.configure`, `genai.AsyncClient`,
-  `genai.exceptions.RateLimitError`, `generation_config=`). The reason was that the `google-genai` contract
-  was not locked down in the prompt. After adding precise signatures to the prompt and switching to
-  `gemini-3.6-flash-high`, the result worked on the first try.
-- **Key takeaway for future delegations**: the quality of the result is determined not so much by the model, but by
-  whether the verified API is locked down in the prompt. Without this, the model confidently writes from memory —
-  and misses the package version.
-- What had to be fixed manually after delegates: `build_kg.py` was looking for `*.txt`, whereas the generator
-  produces `*.md` (resulting in zero files found).
+- Routing used: `build_kg.py` → `claude-sonnet-4-6`; `generate_synthetic_data.py`,
+  `query_example.py`, `verify_graph.py`, `disambiguate.py` → `gemini-3.1-pro-high` /
+  `gemini-3.5-flash-high`; documentation translation → `gemini-3.5-flash-high`.
+- Fixed by hand after delegation: `build_kg.py` globbed `*.txt` while the generator emits `*.md`;
+  `disambiguate.py` had `args.in-place` / `args.output-graph`, which parse as subtraction.
+- `verify_graph.py` counted a collapsed parent/child pair as covered hierarchy — the metric was
+  inverted, so heavier collapsing scored better. Found by a delegated review of the model's own
+  earlier output.
 
 ## Git
 
@@ -78,25 +73,8 @@ I read and fix it. Prompts are located in `orchestration/prompts/`, extraction f
   `await rag.finalize_storages()`. Skipping `initialize_pipeline_status()` is a common cause of freezes.
 - `QueryParam.mode` allows `local|global|hybrid|naive|mix|bypass` (default `mix`), and
   `enable_rerank` defaults to `True` — the reranker is not configured in the project, so set `False` explicitly.
-- `agy` CLI (Antigravity CLI, v1.1.10, `D:\.gemini\agy\agy.exe`, in PATH as `agy`) verified with live
-  calls: headless mode (`--print`/`--output-format json`) works, `--conversation <id>` successfully
-  resumes the session while preserving context, `agy agent`/`agy plugin list` are empty (no named agents
-  or plugins are configured). Details and options are in `orchestration.md`.
-- `agy` call cost: even a trivial prompt incurs ~20-27k input tokens of system overhead. On real
-  delegated prompts: 29-46k input. **Caching between separate `--print` calls does work**: gemini models
-  had `cache_read_tokens` of 77k and 86k (for `claude-sonnet-4-6` and `gpt-oss-120b-medium` it was 0). The
-  earlier observation "caching not confirmed" only applied to trivial test prompts.
-- **`--effort` is not supported by the `claude-sonnet-4-6` model**: the call fails with
-  `invalid model selection ... --effort is not supported for model "claude-sonnet-4-6"`,
-  `status: ERROR`, zero tokens spent. The recommendation in `orchestration.md` to use
-  `claude-sonnet-4-6 --effort medium` is incorrect, the flag should simply be omitted.
-- **Gemini models in `agy` behave agentically even on purely text-based tasks**: `gemini-3.6-flash-high`
-  attempted to invoke a tool requiring `command` permission; headless mode auto-rejected it, and `response`
-  returned EMPTY with `status: SUCCESS` and 12k output tokens. The actual reason is only visible in stderr,
-  not in JSON. Takeaways: (1) always check stderr as well, not just `status`; (2) an empty `response`
-  with non-zero `output_tokens` is a sign of an auto-rejected tool. At the same time, the agent had already
-  managed to write the result directly to a project file — meaning a delegated call can modify the working
-  tree even without `--dangerously-skip-permissions`.
+- Delegation mechanics for `agy` (models, flags, failure modes, review order) live in
+  `orchestration.md` — deliberately not duplicated here.
 
 ## API QUOTA — the main project limitation
 
