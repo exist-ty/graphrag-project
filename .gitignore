@@ -1,0 +1,7 @@
+.env
+.venv/
+rag_storage/
+data/generated/
+__pycache__/
+*.pyc
+pip_install.log
