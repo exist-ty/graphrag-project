@@ -25,7 +25,9 @@ from google.genai import errors, types
 # Загрузка переменных окружения из .env
 dotenv.load_dotenv()
 
-MODEL_NAME = "gemini-3.6-flash"
+# Переведено с `gemini-3.6-flash`: у free tier лимит 20 запросов В СУТКИ на модель, и прогон
+# на 24 документа исчерпал его после 7 успешных. Квота считается на модель — у lite свой бюджет.
+MODEL_NAME = "gemini-3.5-flash-lite"
 
 # Иерархическая схема Ground Truth для структурированного вывода Gemini
 GROUND_TRUTH_SCHEMA: Dict[str, Any] = {
