@@ -12,25 +12,43 @@
 
 ## Context management: `MEMORY.md`
 
-`MEMORY.md` is a living project state file, separate from `PLAN.md`. `PLAN.md` is a plan
-written once and not rewritten as work progresses; `MEMORY.md` is what has actually occurred
-and what is actually true right now. When working on the project:
+`PLAN.md` is written once and never rewritten; `MEMORY.md` is what actually happened and what is
+true now. Read `MEMORY.md` before acting on `PLAN.md` — it holds deviations, empirical findings and
+blocked steps the plan does not know about.
 
-1. **At the start of work** — read `MEMORY.md` before relying on `PLAN.md` out of
-   context: `MEMORY.md` may contain deviations from the plan, empirically found facts, or
-   blocked steps that are not yet in `PLAN.md`.
-2. **As work progresses** — actively write to `MEMORY.md`, without postponing to the end of the session, when:
-   - a step from `PLAN.md` is completed, or is completed differently than written in it;
-   - a decision is made that is not in `PLAN.md` (for example, an empirically found
-     `embedding_dim` value, a model replacement, a query interface selection);
-   - something unexpected is discovered (a bug, an API quirk, a quota, a blocked path);
-   - a delegated `agy` call is made (see `orchestration.md`), the result of which affects
-     subsequent steps.
-3. **Format** — facts, not a chronological log: update/delete outdated entries instead of
-   accumulating new ones next to them. `MEMORY.md` is loaded in its entirety into the context of each session — keep
-   it compact.
+Write to it **as work progresses**, not at the end of a session, whenever: a plan step completes or
+completes differently; a decision is made that is not in the plan; something unexpected turns up
+(a bug, an API quirk, a quota, a blocked path); or a delegated call produces a result that affects
+later steps.
+
+Record facts, not a chronicle: update or delete a stale entry rather than adding a newer one beside
+it. The whole file is read at the start of every session — keep it compact, and keep delegation
+mechanics out of it (those belong in `orchestration.md`).
+
+## Working rules
+
+**Token conservation has absolute priority.** These files are read every session; every rule below
+exists because ignoring it cost context on a real run.
+
+- **Never read delegated code in full as the first check.** Order, stopping at the first rejection:
+  `python orchestration/extract.py <tag>` (mechanical gate) → smoke run with a small `--limit` →
+  delegated review → own reading, only at the lines the earlier steps pointed to. Measured on this
+  project: ~1900 lines read by hand yielded one bug; running the code and a delegated review found
+  everything expensive.
+- **`git diff` after every delegated run.** Delegated agents write into the working tree even
+  without `--dangerously-skip-permissions`, and they exceed their stated scope.
+- **Do not poll background tasks.** Completion arrives as a notification.
+- **Verify a claim before acting on it**, whether it comes from a delegated review, another agent,
+  or this file. Reviews produce confident findings that do not reproduce.
+- **Commit as work progresses and push**; do not accumulate. Remote is in `MEMORY.md`.
+- **Prefer an exit code to a report.** A check that returns 0/1 (`verify_graph.py`, the extract
+  gate) is cheaper and more honest than prose describing whether something worked.
 
 ## Delegation via agy
+
+Put the task spec in `orchestration/prompts/`, keep the argv prompt to one line, and let the agent
+read project files via `--add-dir` — passing data inside the prompt wastes tokens and breaks past
+the 32767-byte argv limit. Extract results only through `orchestration/extract.py`, never by hand.
 
 Before calling `agy` — check `orchestration.md` (model selection by task class, flags
 `--effort`/`--output-format json`/`--add-dir`/`--conversation`, restriction on
