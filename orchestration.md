@@ -117,15 +117,23 @@ it, a model writes confidently against the wrong package version. Introspect wha
 known traps into the spec, and state cross-task contracts — shared function names and signatures —
 yourself rather than letting two agents agree on them independently.
 
-## Artifacts go to files; replies carry only what needs judging
+## Never ask an agent to return code in the reply
 
-A delegated agent should write its code to a file and return only the prose the orchestrator must
-read — a design rationale, a list of findings, a summary. Code in the reply body is wasted output:
-it is gated mechanically, not read, so routing it through the response only risks it landing in the
-orchestrator's context.
+An agent that produces a file writes that file. It returns only prose the orchestrator has to judge:
+a design rationale, findings, a summary. This is not a preference — a spec that says "return exactly
+one ```python block" is a defect, and the specs here carried it for five files before it was caught.
 
-When two agents work the same task in parallel, give each its own output directory under
-`orchestration/runs/` rather than forbidding writes — otherwise the second overwrites the first.
+Code in a response body is wasted output twice over: it is gated mechanically rather than read, so
+routing it through the reply buys nothing, and it puts the full text one careless print away from
+the orchestrator's context — the single most expensive thing that can happen to it.
+
+- The spec names the exact output path. Verify it afterwards with
+  `python orchestration/extract.py --gate <path>`.
+- Requires `--mode accept-edits` on the call, or the agent cannot write at all.
+- When two agents work the same task in parallel, give each its own directory under
+  `orchestration/runs/` instead of forbidding writes — otherwise the second overwrites the first.
+- Extraction from a JSON response still exists in `extract.py` for old runs. It is legacy; do not
+  write new specs that need it.
 
 ## Review order — cheapest check first
 

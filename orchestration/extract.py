@@ -1,9 +1,15 @@
-"""Извлекает код из JSON-ответов делегированных вызовов agy в scripts/.
+"""Gates code produced by delegated `agy` runs before it is trusted.
 
-Каждый прогон (`orchestration/runs/<tag>.json`) должен содержать ровно один
-fenced-блок ```python — это условие задавалось в промпте. Скрипт проверяет
-status == SUCCESS, вытаскивает блок, проверяет синтаксис через ast.parse
-и только потом пишет файл.
+Two modes:
+
+* `--gate <path>` — the normal one. The agent wrote the file itself; this checks it in place.
+* `<tag>` — legacy. Pulls a fenced block out of `orchestration/runs/<tag>.json` and gates it
+  before writing. Kept only for runs made under the old specs, which asked agents to return code
+  in the reply. Do not write new specs that way: code in a response body is wasted output, since
+  it is gated rather than read, and it risks reaching the orchestrator's context.
+
+Either way the gate is the same: syntax, resolvability of every top-level import, forbidden
+constructs, and the contract the spec promised. Failing output is never read in full.
 """
 
 from __future__ import annotations
@@ -75,8 +81,16 @@ def run_gate(path: Path, code: str) -> bool:
         elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
             modules.add(node.module.split(".")[0])
     for mod in sorted(modules):
-        if importlib.util.find_spec(mod) is None:
-            print(f"    ✗ импорт не разрешается: {mod!r} — модуль не установлен")
+        # A sibling module in the same directory counts as resolvable: scripts add their own
+        # directory to sys.path at runtime, so find_spec alone reports a false failure.
+        if (path.parent / f"{mod}.py").exists():
+            continue
+        try:
+            resolved = importlib.util.find_spec(mod) is not None
+        except (ImportError, ValueError):
+            resolved = False
+        if not resolved:
+            print(f"    ✗ import does not resolve: {mod!r} — not installed and not a sibling module")
             ok = False
 
     # 2. Запрещённые конструкции.
@@ -133,10 +147,33 @@ def extract(tag: str, target: str) -> bool:
     return True
 
 
+def gate_existing(path: Path) -> bool:
+    """Gate a file a delegated agent wrote directly — the normal path."""
+    if not path.exists():
+        print(f"[gate] file not found: {path}")
+        return False
+    code = path.read_text(encoding="utf-8")
+    try:
+        ast.parse(code)
+    except SyntaxError as exc:
+        print(f"[gate] {path.name}: SYNTAX ERROR: {exc}")
+        return False
+    if not run_gate(path, code):
+        print(f"[gate] {path.name}: GATE FAILED — do not read it in full, send it back")
+        return False
+    print(f"[gate] {path.name}: OK ({code.count(chr(10))} lines)")
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("tags", nargs="*", default=list(TARGETS), help="какие прогоны извлечь")
+    parser.add_argument("tags", nargs="*", default=list(TARGETS), help="legacy: runs to extract")
+    parser.add_argument("--gate", type=Path, action="append", default=[],
+                        help="gate a file the agent wrote directly (normal mode)")
     args = parser.parse_args()
+
+    if args.gate:
+        return 0 if all(gate_existing(p) for p in args.gate) else 1
 
     ok = True
     for tag in args.tags or TARGETS:
