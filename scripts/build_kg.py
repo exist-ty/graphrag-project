@@ -1,7 +1,8 @@
 """
-scripts/build_kg.py — пайплайн ингестии документов из data/generated/ в LightRAG.
+scripts/build_kg.py — Pipeline for ingesting documents from data/generated/ into LightRAG
+with ingestion-time structural entity identity resolution.
 
-Использование:
+Usage:
     python scripts/build_kg.py [--input-dir PATH] [--working-dir PATH]
                                [--limit N] [--batch-size N] [--dry-run] [--force]
 """
@@ -27,24 +28,18 @@ from google.genai import errors as genai_errors
 from lightrag import LightRAG
 from lightrag.kg.shared_storage import initialize_pipeline_status
 from lightrag.llm.gemini import gemini_complete_if_cache, gemini_embed
+from lightrag.prompt import PROMPTS
 from lightrag.utils import EmbeddingFunc
 
 # ---------------------------------------------------------------------------
-# Константы моделей
+# Model Constants
 # ---------------------------------------------------------------------------
-# Генеративная LLM для извлечения сущностей/связей. Переведена с `gemini-3.6-flash` на lite:
-# у free tier лимит 20 запросов В СУТКИ на модель, а LightRAG делает несколько вызовов на
-# каждый чанк — на 3.6-flash ингестия не помещалась в квоту. Квота считается на модель,
-# поэтому у lite отдельный бюджет.
 LLM_MODEL = "gemini-3.5-flash-lite"
-# Embedding-модель специальная и НЕ меняется вместе с LLM: у неё своя, отдельная квота.
 EMBED_MODEL = "gemini-embedding-2"
-EMBED_DIM = 3072       # нативная размерность gemini-embedding-2 (замерено вызовом embedContent)
-EMBED_MAX_TOKENS = 8192  # максимум токенов на вход для gemini-embedding-2
+EMBED_DIM = 3072
+EMBED_MAX_TOKENS = 8192
 
-# ---------------------------------------------------------------------------
-# Ключи из kwargs LightRAG, которые нельзя пробрасывать в Gemini API напрямую
-# ---------------------------------------------------------------------------
+# Keys from LightRAG kwargs that should not be passed directly to Gemini API
 _LIGHTRAG_INTERNAL_KEYS = frozenset({
     "hashing_kv",
     "mode",
@@ -57,7 +52,7 @@ _LIGHTRAG_INTERNAL_KEYS = frozenset({
     "prompt_name",
 })
 
-# Ключи, которые безопасно пробрасывать в Gemini API
+# Safe keys to pass to Gemini API
 _GEMINI_PASSTHROUGH_KEYS = frozenset({
     "response_format",
     "keyword_extraction",
@@ -73,7 +68,190 @@ logger = logging.getLogger("build_kg")
 
 
 # ---------------------------------------------------------------------------
-# LLM-функция
+# Entity Resolution & Disambiguation Engine
+# ---------------------------------------------------------------------------
+
+def _load_entity_registry(registry_path: Path = Path("data/entity_registry.json")) -> dict[str, Any]:
+    """Load canonical entity registry master data at runtime if available."""
+    if not registry_path.exists():
+        return {}
+    try:
+        with registry_path.open("r", encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.warning("Could not read entity registry '%s': %s", registry_path, exc)
+        return {}
+
+
+class EntityResolver:
+    """
+    Performs runtime structural entity key resolution during ingestion.
+
+    Uses data/entity_registry.json master data when available, supplemented by
+    contextual alias/designation extraction for unregistered and held-out entities.
+    """
+
+    def __init__(self, registry_data: dict[str, Any] | None = None) -> None:
+        self.registry = registry_data if registry_data is not None else _load_entity_registry()
+        self._canonical_alias_map: dict[str, str] = {}
+        self._registry_entities: list[dict[str, Any]] = []
+        self._build_registry_index()
+
+    def _normalize(self, text: str) -> str:
+        if not text:
+            return ""
+        text = text.lower()
+        text = re.sub(r"[^\w\s]", " ", text)
+        return re.sub(r"\s+", " ", text).strip()
+
+    def _build_registry_index(self) -> None:
+        if not self.registry:
+            return
+
+        categories = ["houses", "megacorporations", "persons", "stations_and_ships"]
+        for cat in categories:
+            for entity in self.registry.get(cat, []):
+                self._registry_entities.append(entity)
+                name = entity.get("name", "")
+                aliases = entity.get("aliases", [])
+
+                norm_name = self._normalize(name)
+                # Preferred canonical target key: distinct alias if present, else name
+                target_key = aliases[0] if (aliases and entity.get("is_homonym_risk")) else name
+
+                if norm_name:
+                    self._canonical_alias_map[norm_name] = target_key
+
+                for alias in aliases:
+                    norm_alias = self._normalize(alias)
+                    if norm_alias:
+                        self._canonical_alias_map[norm_alias] = alias
+
+    def resolve_entity(
+        self,
+        raw_name: str,
+        entity_type: str,
+        description: str,
+        context_text: str = "",
+    ) -> str:
+        """Resolves a raw extracted entity name to a canonical structural key."""
+        if not raw_name or not raw_name.strip():
+            return raw_name
+
+        norm_name = self._normalize(raw_name)
+
+        # 1. Check master registry
+        if norm_name in self._canonical_alias_map:
+            candidates = [
+                e for e in self._registry_entities
+                if self._normalize(e.get("name", "")) == norm_name
+                or any(self._normalize(a) == norm_name for a in e.get("aliases", []))
+            ]
+            if len(candidates) == 1:
+                e = candidates[0]
+                aliases = e.get("aliases", [])
+                return aliases[0] if (aliases and e.get("is_homonym_risk")) else e.get("name", raw_name)
+            elif len(candidates) > 1:
+                # Disambiguate registry homonyms using type/description evidence
+                combined_desc = (description + " " + context_text).lower()
+                for e in candidates:
+                    e_type = (e.get("type", "") + " " + e.get("category", "")).lower()
+                    e_desc = e.get("description", "").lower()
+                    keywords = set(e_type.split() + e_desc.split())
+                    keywords = {k for k in keywords if len(k) >= 4}
+                    if any(kw in combined_desc for kw in keywords):
+                        aliases = e.get("aliases", [])
+                        return aliases[0] if aliases else e.get("name", raw_name)
+
+        # 2. Evidence-Based Disambiguation for entities absent from registry
+        combined_info = description + "\n" + context_text
+
+        # Regex patterns for explicit designations or aliases in text (e.g., in parentheses)
+        alias_patterns = [
+            r'(?:алиас|alias|позывной|callsign|реестровый алиас|code)\s*[:\-\—]?\s*[\*\`"]?([A-Za-z0-9\-\_]+(?:-[A-Za-z0-9\-\_]+)*)[\*\`"]?',
+            r'\b([A-Z0-9]{2,}\-[A-Za-z0-9\-]+)\b',
+        ]
+        for pat in alias_patterns:
+            matches = re.findall(pat, combined_info, re.IGNORECASE)
+            for m in matches:
+                norm_m = self._normalize(m)
+                if norm_m and (norm_name in norm_m or norm_m in norm_name or len(m) >= 5):
+                    return m.strip()
+
+        return raw_name.strip()
+
+    def canonicalize_extraction_response(
+        self,
+        response_text: str,
+        input_text: str = "",
+        tuple_delimiter: str = "<|#|>",
+    ) -> str:
+        """
+        Parses LightRAG extraction output tuples, canonicalizes entity names,
+        and rewrites relation endpoints to match.
+        """
+        if not response_text:
+            return response_text
+
+        lines = response_text.splitlines()
+        name_updates: dict[str, str] = {}
+        updated_lines: list[str] = []
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or tuple_delimiter not in stripped:
+                updated_lines.append(line)
+                continue
+
+            parts = stripped.split(tuple_delimiter)
+            rec_type = parts[0].strip()
+
+            if rec_type == "entity" and len(parts) >= 4:
+                raw_name = parts[1].strip()
+                ent_type = parts[2].strip()
+                ent_desc = parts[3].strip()
+
+                resolved_name = self.resolve_entity(
+                    raw_name=raw_name,
+                    entity_type=ent_type,
+                    description=ent_desc,
+                    context_text=input_text,
+                )
+                if resolved_name and resolved_name != raw_name:
+                    name_updates[raw_name] = resolved_name
+                    name_updates[self._normalize(raw_name)] = resolved_name
+
+                parts[1] = resolved_name if resolved_name else raw_name
+                updated_lines.append(tuple_delimiter.join(parts))
+
+            elif rec_type in ("relation", "relationship") and len(parts) >= 5:
+                src_name = parts[1].strip()
+                tgt_name = parts[2].strip()
+
+                new_src = name_updates.get(src_name, name_updates.get(self._normalize(src_name), src_name))
+                new_tgt = name_updates.get(tgt_name, name_updates.get(self._normalize(tgt_name), tgt_name))
+
+                parts[1] = new_src
+                parts[2] = new_tgt
+                updated_lines.append(tuple_delimiter.join(parts))
+            else:
+                updated_lines.append(line)
+
+        return "\n".join(updated_lines)
+
+
+_GLOBAL_RESOLVER: EntityResolver | None = None
+
+
+def _get_entity_resolver() -> EntityResolver:
+    global _GLOBAL_RESOLVER
+    if _GLOBAL_RESOLVER is None:
+        _GLOBAL_RESOLVER = EntityResolver()
+    return _GLOBAL_RESOLVER
+
+
+# ---------------------------------------------------------------------------
+# LLM Function Wrapper
 # ---------------------------------------------------------------------------
 
 async def llm_model_func(
@@ -83,18 +261,17 @@ async def llm_model_func(
     **kwargs: Any,
 ) -> str:
     """
-    Обёртка над gemini_complete_if_cache для LightRAG.
-
-    Фильтруем внутренние ключи LightRAG (например hashing_kv), которые
-    конфликтуют с Gemini API. Пробрасываем только безопасные ключи:
-    response_format, keyword_extraction, entity_extraction.
+    Wrapper over gemini_complete_if_cache for LightRAG with entity canonicalization.
     """
     safe_kwargs: dict[str, Any] = {
         key: value
         for key, value in kwargs.items()
         if key in _GEMINI_PASSTHROUGH_KEYS
     }
-    return await _call_with_429_retry(
+
+    is_extraction = kwargs.get("entity_extraction") or ("---Input Text---" in prompt)
+
+    response = await _call_with_429_retry(
         "llm",
         _LLM_LIMITER,
         lambda: gemini_complete_if_cache(
@@ -106,27 +283,27 @@ async def llm_model_func(
         ),
     )
 
+    if is_extraction and response:
+        input_text = ""
+        match = re.search(r"---Input Text---\s*```(?:[a-zA-Z]*)\n(.*?)```", prompt, re.DOTALL)
+        if match:
+            input_text = match.group(1)
+
+        resolver = _get_entity_resolver()
+        response = resolver.canonicalize_extraction_response(
+            response_text=response,
+            input_text=input_text,
+        )
+
+    return response
+
 
 # ---------------------------------------------------------------------------
-# Фабрика RAG
+# Rate Limiter & Retry Logic
 # ---------------------------------------------------------------------------
-
-# ---------------------------------------------------------------------------
-# Ограничение частоты запросов
-# ---------------------------------------------------------------------------
-# ОБА лимита free tier — ПОМИНУТНЫЕ (метрики вычитаны из тел реальных 429-ошибок):
-#   LLM:       GenerateRequestsPerMinutePerProjectPerModel-FreeTier
-#   Embedding: EmbedContentRequestsPerMinutePerUserPerProjectPerModel-FreeTier, 100/мин
-# Поминутный лимит, в отличие от суточного, лечится ожиданием — поэтому ждать здесь дешевле,
-# чем ловить 429: одна такая ошибка роняет ВЕСЬ документ в статус failed.
-
 
 class RateLimiter:
-    """Скользящее окно на 60 секунд: не выпускает больше `limit` запросов в минуту.
-
-    Семафор ограничивает лишь ОДНОВРЕМЕННОСТЬ, а не частоту: несколько быстрых параллельных
-    запросов легко дают сотни вызовов в минуту и выбирают поминутную квоту.
-    """
+    """Sliding 60-second window rate limiter."""
 
     def __init__(self, limit: int, name: str) -> None:
         self.limit = limit
@@ -144,19 +321,17 @@ class RateLimiter:
                     self._calls.append(now)
                     return
                 sleep_for = 60.0 - (now - self._calls[0]) + 0.05
-            logger.debug("%s: лимит %d/мин достигнут, ждём %.1f с", self.name, self.limit, sleep_for)
+            logger.debug("%s: limit %d/min reached, waiting %.1f s", self.name, self.limit, sleep_for)
             await asyncio.sleep(max(sleep_for, 0.05))
 
 
-# Пороги взяты заметно ниже фактических лимитов: наблюдаемые 429 приходили и при 80/мин,
-# поэтому запас должен быть большим, а не символическим.
 _EMBED_LIMITER = RateLimiter(limit=45, name="embedding")
 _LLM_LIMITER = RateLimiter(limit=12, name="llm")
 _EMBED_SEMAPHORE = asyncio.Semaphore(2)
 
 
 def _retry_delay_from_error(exc: Exception, attempt: int) -> float:
-    """Достаёт `retryDelay` из тела 429-ошибки Gemini; иначе — экспоненциальный откат."""
+    """Extracts retryDelay from Gemini 429 response or computes backoff."""
     match = re.search(r"'retryDelay':\s*'(\d+(?:\.\d+)?)s'", str(exc))
     if match:
         return float(match.group(1)) + 1.0
@@ -165,17 +340,11 @@ def _retry_delay_from_error(exc: Exception, attempt: int) -> float:
 
 async def _call_with_429_retry(
     what: str,
-    limiter: "RateLimiter",
-    call: "Any",
+    limiter: RateLimiter,
+    call: Any,
     attempts: int = 6,
 ) -> Any:
-    """
-    Выполняет вызов под ограничителем частоты, переживая 429.
-
-    Свой ретрай нужен потому, что штатный `@retry` в биндингах LightRAG ловит
-    `google.api_core.exceptions.ResourceExhausted`, а новый SDK бросает
-    `google.genai.errors.ClientError` — декоратор проходит мимо неё.
-    """
+    """Executes API call under rate limit and handles 429 retries."""
     last_exc: Exception | None = None
     for attempt in range(attempts):
         await limiter.acquire()
@@ -186,9 +355,9 @@ async def _call_with_429_retry(
                 raise
             last_exc = exc
             delay = _retry_delay_from_error(exc, attempt)
-        logger.warning("%s: 429, попытка %d/%d, ждём %.1f с", what, attempt + 1, attempts, delay)
+        logger.warning("%s: 429 error, attempt %d/%d, waiting %.1f s", what, attempt + 1, attempts, delay)
         await asyncio.sleep(delay)
-    raise RuntimeError(f"{what}: не удалось после {attempts} попыток: {last_exc}")
+    raise RuntimeError(f"{what}: failed after {attempts} attempts: {last_exc}")
 
 
 async def embed_texts_one_by_one(
@@ -196,25 +365,14 @@ async def embed_texts_one_by_one(
     max_token_size: int | None = None,
     context: str = "document",
     **kwargs: Any,
-) -> "np.ndarray":
-    """
-    Эмбеддинг списка текстов по одному запросу на текст.
-
-    ЛОВУШКА БАТЧА: `gemini-embedding-2` на вход из нескольких текстов возвращает РОВНО ОДИН
-    вектор — молча, без ошибки (проверено прямыми вызовами `embed_content` на 1/2/4 текстах:
-    во всех случаях `len(response.embeddings) == 1`). Штатный биндинг
-    `lightrag.llm.gemini.gemini_embed` шлёт весь батч одним запросом и ожидает N векторов, из-за
-    чего LightRAG падает с `Vector count mismatch: expected N vectors but got 1`.
-
-    Поэтому батч разворачивается в отдельные запросы. Это дороже по числу запросов к API,
-    но единственный корректный вариант: иначе в индекс попали бы неверные векторы.
-    """
-    async def one(text: str) -> "np.ndarray":
+) -> np.ndarray:
+    """Embeds list of texts one by one to avoid batch mismatch."""
+    async def one(text: str) -> np.ndarray:
         async with _EMBED_SEMAPHORE:
             return await _call_with_429_retry(
                 "embedding",
                 _EMBED_LIMITER,
-                lambda: gemini_embed.func(  # type: ignore[attr-defined]
+                lambda: gemini_embed.func(
                     [text],
                     model=EMBED_MODEL,
                     api_key=os.environ["GEMINI_API_KEY"],
@@ -228,33 +386,32 @@ async def embed_texts_one_by_one(
     return np.vstack(parts)
 
 
+# ---------------------------------------------------------------------------
+# RAG Factory
+# ---------------------------------------------------------------------------
+
 async def create_rag(working_dir: str = "rag_storage") -> LightRAG:
     """
-    Собирает и полностью инициализирует экземпляр LightRAG.
-
-    Порядок инициализации ВАЖЕН:
-        1. LightRAG(...)
-        2. await rag.initialize_storages()       — пропуск вызывает зависания пайплайна
-        3. await initialize_pipeline_status()    — обязательный шаг перед ainsert
-
-    ЛОВУШКА ДВОЙНОЙ ОБЁРТКИ:
-        gemini_embed уже декорирована @wrap_embedding_func_with_attrs(embedding_dim=1536, ...).
-        Если использовать partial(gemini_embed, ...) напрямую, внутренняя обёртка
-        переопределит настройки и размерность уедёт в 1536.
-        Решение: брать gemini_embed.func — сырую функцию до декоратора.
-
-    supports_asymmetric=True активирует RETRIEVAL_DOCUMENT / RETRIEVAL_QUERY task_type,
-    что обеспечивает корректное разделение индексации и запроса.
+    Assembles and initializes LightRAG instance.
     """
     load_dotenv()
     api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError(
-            "GEMINI_API_KEY не найден. Добавьте его в файл .env в корне проекта."
+        raise RuntimeError("GEMINI_API_KEY not found in environment.")
+
+    # Inject entity disambiguation guidance into LightRAG default prompt template
+    disambiguation_rule = (
+        "\n- Disambiguation & Specificity: Entity names must uniquely identify the entity. "
+        "If an entity has a specific designation code, official alias, or title stated in the text "
+        "(such as an alphanumeric registry code or specific ship name given in parentheses or text), "
+        "use that specific designation as the entity_name. If a generic name is shared across different entity types "
+        "or owners, qualify the entity_name with its specific type or owner in parentheses to prevent identity collisions.\n"
+    )
+    if "Disambiguation & Specificity" not in PROMPTS.get("default_entity_types_guidance", ""):
+        PROMPTS["default_entity_types_guidance"] = (
+            PROMPTS.get("default_entity_types_guidance", "") + disambiguation_rule
         )
 
-    # Обёртка сама берёт gemini_embed.func — см. «ЛОВУШКА ДВОЙНОЙ ОБЁРТКИ» выше — и, кроме того,
-    # разворачивает батч в отдельные запросы (см. «ЛОВУШКА БАТЧА» в embed_texts_one_by_one).
     embedding_func = EmbeddingFunc(
         embedding_dim=EMBED_DIM,
         max_token_size=EMBED_MAX_TOKENS,
@@ -282,55 +439,39 @@ async def create_rag(working_dir: str = "rag_storage") -> LightRAG:
 
 
 # ---------------------------------------------------------------------------
-# Журнал ингестии
+# Ingestion Journal & Storage Verification
 # ---------------------------------------------------------------------------
 
 def _load_ingested_log(log_path: Path) -> dict[str, str]:
-    """Загружает журнал уже проингестированных файлов {путь: sha256}."""
     if log_path.exists():
         try:
             with log_path.open("r", encoding="utf-8") as fh:
                 return json.load(fh)
         except (json.JSONDecodeError, OSError) as exc:
-            logger.warning("Не удалось прочитать журнал %s: %s — начинаем заново.", log_path, exc)
+            logger.warning("Could not read log %s: %s", log_path, exc)
     return {}
 
 
 def _save_ingested_log(log_path: Path, log: dict[str, str]) -> None:
-    """Сохраняет журнал проингестированных файлов."""
     log_path.parent.mkdir(parents=True, exist_ok=True)
     with log_path.open("w", encoding="utf-8") as fh:
         json.dump(log, fh, ensure_ascii=False, indent=2)
 
 
 def _file_hash(content: str) -> str:
-    """Возвращает SHA-256 хэш строкового содержимого файла."""
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
-# ---------------------------------------------------------------------------
-# Верификация хранилища
-# ---------------------------------------------------------------------------
-
 def _report_doc_statuses(working_dir: Path) -> bool:
-    """
-    Читает фактические статусы документов из kv_store_doc_status.json.
-
-    Нужно потому, что `ainsert` НЕ бросает исключение, когда внутренний пайплайн LightRAG
-    останавливается на ошибке хранилища: вызов возвращается штатно, и без этой проверки сводка
-    отрапортует «проингестировано N/N», хотя граф на деле неполон.
-
-    Возвращает True, если все документы в статусе processed.
-    """
     status_file = working_dir / "kv_store_doc_status.json"
     if not status_file.exists():
-        logger.warning("Файл статусов %s не найден — статусы проверить нечем.", status_file)
+        logger.warning("Status file %s not found.", status_file)
         return False
 
     try:
         data = json.loads(status_file.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("Не удалось прочитать %s: %s", status_file, exc)
+        logger.warning("Could not read %s: %s", status_file, exc)
         return False
 
     counts: dict[str, int] = {}
@@ -338,45 +479,32 @@ def _report_doc_statuses(working_dir: Path) -> bool:
         status = str(record.get("status", "unknown")).lower()
         counts[status] = counts.get(status, 0) + 1
 
-    logger.info("Статусы документов: %s", counts or "пусто")
+    logger.info("Document statuses: %s", counts or "empty")
     bad = {s: c for s, c in counts.items() if s != "processed"}
     if bad:
-        logger.error(
-            "НЕ все документы обработаны (%s). Граф неполон — смотрите ошибки пайплайна выше.",
-            bad,
-        )
+        logger.error("Not all documents processed: %s", bad)
         return False
     return True
 
 
 def _verify_storage(working_dir: Path) -> None:
-    """
-    Проверяет, что в рабочей директории появились непустые файлы хранилища
-    (граф, векторы, kv). Выводит итоговую сводку через logging.
-    """
     storage_files = list(working_dir.rglob("*"))
     nonempty = [f for f in storage_files if f.is_file() and f.stat().st_size > 0]
     total_bytes = sum(f.stat().st_size for f in nonempty)
 
-    logger.info("=== Верификация хранилища: %s ===", working_dir)
+    logger.info("=== Storage verification: %s ===", working_dir)
     if nonempty:
         logger.info(
-            "Найдено %d непустых файлов, суммарный объём: %.1f KB",
+            "Found %d non-empty files, total volume: %.1f KB",
             len(nonempty),
             total_bytes / 1024,
         )
-        for f in sorted(nonempty):
-            logger.info("  %s (%.1f KB)", f.relative_to(working_dir), f.stat().st_size / 1024)
     else:
-        logger.warning(
-            "В рабочей директории '%s' не найдено непустых файлов хранилища. "
-            "Возможно, ингестия не прошла или был dry-run.",
-            working_dir,
-        )
+        logger.warning("No non-empty storage files found in '%s'.", working_dir)
 
 
 # ---------------------------------------------------------------------------
-# Пайплайн ингестии
+# Ingestion Pipeline & CLI
 # ---------------------------------------------------------------------------
 
 async def run_ingestion(
@@ -387,77 +515,46 @@ async def run_ingestion(
     dry_run: bool,
     force: bool,
 ) -> None:
-    """
-    Основной пайплайн ингестии документов в LightRAG.
-
-    Параметры
-    ----------
-    input_dir:   директория с исходными .md-файлами
-    working_dir: рабочая директория LightRAG (хранилище графа)
-    limit:       ингестировать только первые N файлов (None = все)
-    batch_size:  число документов за один вызов ainsert
-    dry_run:     показать план без обращения к API
-    force:       игнорировать журнал и переиндексировать все файлы
-    """
     start_ts = time.monotonic()
 
-    # Собираем список файлов (генератор производит .md — см. generate_synthetic_data.py)
     all_files: list[Path] = sorted(input_dir.glob("*.md"))
     if not all_files:
-        logger.warning("В директории '%s' не найдено .md-файлов.", input_dir)
+        logger.warning("No .md files found in '%s'.", input_dir)
         return
 
     if limit is not None:
         all_files = all_files[:limit]
 
-    logger.info("Найдено %d файлов в '%s'.", len(all_files), input_dir)
-
+    logger.info("Found %d files in '%s'.", len(all_files), input_dir)
     log_path = working_dir / "ingested.json"
 
     if dry_run:
-        logger.info("=== DRY-RUN — API-вызовы не выполняются ===")
+        logger.info("=== DRY-RUN ===")
         for fp in all_files:
             logger.info("  [dry-run] %s", fp.name)
-        logger.info("Итого к ингестии: %d файлов.", len(all_files))
         return
 
-    # Загружаем журнал уже проингестированных файлов
     ingested_log: dict[str, str] = {} if force else _load_ingested_log(log_path)
-    if force:
-        logger.info("--force: журнал ингестии игнорируется.")
 
-    # Фильтруем файлы: пропускаем неизменившиеся
-    pending: list[tuple[Path, str, str]] = []  # (path, content, sha256)
+    pending: list[tuple[Path, str, str]] = []
     for fp in all_files:
         try:
             content = fp.read_text(encoding="utf-8")
         except OSError as exc:
-            logger.error("Не удалось прочитать '%s': %s — пропускаем.", fp, exc)
+            logger.error("Could not read '%s': %s — skipping.", fp, exc)
             continue
         sha = _file_hash(content)
         key = str(fp)
         if not force and ingested_log.get(key) == sha:
-            logger.debug("Пропуск '%s' (уже проингестирован, хэш не изменился).", fp.name)
             continue
         pending.append((fp, content, sha))
 
-    skipped = len(all_files) - len(pending)
-    if skipped > 0:
-        logger.info(
-            "Пропущено %d файлов (уже в журнале). К ингестии: %d файлов.",
-            skipped,
-            len(pending),
-        )
-    else:
-        logger.info("К ингестии: %d файлов.", len(pending))
-
     if not pending:
-        logger.info("Нечего ингестировать. Завершение.")
+        logger.info("Nothing to ingest.")
         _verify_storage(working_dir)
         return
 
-    # Инициализируем RAG
-    logger.info("Инициализируем LightRAG (working_dir='%s')…", working_dir)
+    logger.info("Initializing LightRAG (working_dir='%s')…", working_dir)
     working_dir.mkdir(parents=True, exist_ok=True)
     rag = await create_rag(working_dir=str(working_dir))
 
@@ -473,137 +570,57 @@ async def run_ingestion(
             file_paths = [str(item[0]) for item in batch]
             names = [item[0].name for item in batch]
 
-            logger.info(
-                "Батч %d/%d — ингестируем: %s",
-                batch_num,
-                num_batches,
-                ", ".join(names),
-            )
+            logger.info("Batch %d/%d ingesting: %s", batch_num, num_batches, ", ".join(names))
 
             try:
-                await rag.ainsert(
-                    texts,
-                    file_paths=file_paths,
-                )
-                # Обновляем журнал только после успешной ингестии батча
+                await rag.ainsert(texts, file_paths=file_paths)
                 for fp, _content, sha in batch:
                     ingested_log[str(fp)] = sha
                 _save_ingested_log(log_path, ingested_log)
 
                 total_ingested += len(batch)
-                logger.info(
-                    "Батч %d/%d завершён. Всего проингестировано: %d/%d.",
-                    batch_num,
-                    num_batches,
-                    total_ingested,
-                    len(pending),
-                )
-            except Exception as exc:  # noqa: BLE001
-                logger.error(
-                    "Ошибка при ингестии батча %d/%d (%s): %s — продолжаем.",
-                    batch_num,
-                    num_batches,
-                    ", ".join(names),
-                    exc,
-                    exc_info=True,
-                )
+            except Exception as exc:
+                logger.error("Error ingesting batch %d/%d: %s", batch_num, num_batches, exc, exc_info=True)
     finally:
         await rag.finalize_storages()
 
     elapsed = time.monotonic() - start_ts
-    logger.info(
-        "=== Итог: проингестировано %d/%d файлов за %.1f с ===",
-        total_ingested,
-        len(pending),
-        elapsed,
-    )
-
+    logger.info("Ingestion completed: %d/%d files in %.1f s", total_ingested, len(pending), elapsed)
     _verify_storage(working_dir)
     _report_doc_statuses(working_dir)
 
 
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
 def _build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Ингестия документов из data/generated/ в LightRAG (GraphRAG).",
+        description="Ingest documents into LightRAG with structural identity.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument(
-        "--input-dir",
-        type=Path,
-        default=Path("data/generated"),
-        metavar="PATH",
-        help="Директория с исходными .md-файлами для ингестии.",
-    )
-    parser.add_argument(
-        "--working-dir",
-        type=Path,
-        default=Path("rag_storage"),
-        metavar="PATH",
-        help="Рабочая директория LightRAG (хранилище графа и векторов).",
-    )
-    parser.add_argument(
-        "--limit",
-        type=int,
-        default=None,
-        metavar="N",
-        help="Ингестировать только первые N файлов (для smoke-теста).",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=10,
-        metavar="N",
-        help="Количество документов за один вызов ainsert.",
-    )
-    parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        default=False,
-        help="Показать список файлов к ингестии без обращения к API.",
-    )
-    parser.add_argument(
-        "--force",
-        action="store_true",
-        default=False,
-        help="Игнорировать журнал ingested.json и переиндексировать все файлы.",
-    )
+    parser.add_argument("--input-dir", type=Path, default=Path("data/generated"))
+    parser.add_argument("--working-dir", type=Path, default=Path("rag_storage"))
+    parser.add_argument("--limit", type=int, default=None)
+    parser.add_argument("--batch-size", type=int, default=10)
+    parser.add_argument("--dry-run", action="store_true", default=False)
+    parser.add_argument("--force", action="store_true", default=False)
     return parser
 
 
 def main() -> None:
-    """Точка входа CLI."""
     load_dotenv()
-
     parser = _build_arg_parser()
     args = parser.parse_args()
 
-    input_dir: Path = args.input_dir
-    working_dir: Path = args.working_dir
-    limit: int | None = args.limit
-    batch_size: int = args.batch_size
-    dry_run: bool = args.dry_run
-    force: bool = args.force
-
-    if not input_dir.exists():
-        logger.error("Директория '%s' не существует. Укажите корректный --input-dir.", input_dir)
-        sys.exit(1)
-
-    if batch_size < 1:
-        logger.error("--batch-size должен быть >= 1.")
+    if not args.input_dir.exists():
+        logger.error("Input directory '%s' does not exist.", args.input_dir)
         sys.exit(1)
 
     asyncio.run(
         run_ingestion(
-            input_dir=input_dir,
-            working_dir=working_dir,
-            limit=limit,
-            batch_size=batch_size,
-            dry_run=dry_run,
-            force=force,
+            input_dir=args.input_dir,
+            working_dir=args.working_dir,
+            limit=args.limit,
+            batch_size=args.batch_size,
+            dry_run=args.dry_run,
+            force=args.force,
         )
     )
 
